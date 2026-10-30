@@ -228,7 +228,8 @@ body.gaming .stage canvas,body.gaming #gc{border-radius:14px}
     <button class="tile" onclick="go('plan')"><div class="ic">🗓️</div><div><b id="tPlan">برنامه‌ی امروز</b><span id="tPlanS">کلاس‌ها و کارها به ترتیب ساعت</span></div></button>
     <button class="tile" onclick="go('music')"><div class="ic">🎧</div><div><b>پلی‌لیست</b><span>آهنگ‌های مشترک</span></div></button>
   </div>
-  <button type="button" class="btn only-him" id="notifBtn" style="width:100%;margin-top:14px">🔔 روشن کردن اعلان ثابت وضعیت نانا</button>
+  <button type="button" class="btn only-him" id="notifBtn2" style="width:100%;margin-top:14px">🔔 روشن کردن اعلان معمولی وضعیت نانا</button>
+<button type="button" class="btn only-him" id="notifBtn" style="width:100%;margin-top:10px">🎵 روشن کردن اعلان رسانه‌ای (مثل آهنگ)</button>
 <div class="foot"><span id="net"></span><button class="x" id="logoutBtn">خروج</button></div>
 </section>
 
@@ -1555,23 +1556,66 @@ requestAnimationFrame(frame);
   new Uint8Array(b,44).fill(128);
   return URL.createObjectURL(new Blob([b],{type:'audio/wav'}));
  }
- function art(ic){
+ let artCache=null;
+ function art(){
+  if(artCache)return artCache;
   try{
    const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');
-   const g=x.createLinearGradient(0,0,256,256);g.addColorStop(0,'#ffeaf2');g.addColorStop(1,'#dff1ff');x.fillStyle=g;x.fillRect(0,0,256,256);
-   x.font='160px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(ic,128,140);
-   return [{src:c.toDataURL('image/png'),sizes:'256x256',type:'image/png'}];
-  }catch(_){return[]}
+   const g=x.createLinearGradient(0,0,256,256);g.addColorStop(0,'#c2386a');g.addColorStop(1,'#1f6fb5');x.fillStyle=g;x.fillRect(0,0,256,256);
+   artCache=[{src:c.toDataURL('image/png'),sizes:'256x256',type:'image/png'}];
+  }catch(_){artCache=[]}
+  return artCache;
  }
  function push(){
   if(!on||!ms||!window.MediaMetadata)return;
   try{
-   ms.metadata=new MediaMetadata({title:last[1],artist:last[2]?'💬 '+last[2]:'نانا',album:'دنیای ما',artwork:art(last[0])});
+   ms.metadata=new MediaMetadata({title:last[0]+' '+last[1],artist:last[2]?'💬 '+last[2]:'دنیای ما',album:'',artwork:art()});
+   try{ms.setPositionState({duration:Infinity,position:0,playbackRate:1})}catch(_){}
    ms.playbackState='playing';
   }catch(_){}
  }
- window.nanaMedia=(ic,tx,nt)=>{last=[ic,tx,nt||''];push()};
- function btn(){const b=document.getElementById('notifBtn');if(b)b.textContent=on?'🔕 خاموش کردن اعلان ثابت':'🔔 روشن کردن اعلان ثابت وضعیت نانا'}
+ window.nanaMedia=(ic,tx,nt)=>{last=[ic,tx,nt||''];push();showN()};
+ /* regular notification via service worker */
+ let nOn=false;
+ try{nOn=localStorage.getItem('nanaNotif')==='1'&&window.Notification&&Notification.permission==='granted'}catch(_){}
+ function nIcon(ic){
+  try{const c=document.createElement('canvas');c.width=c.height=192;const x=c.getContext('2d');
+   x.font='150px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(ic,96,106);return c.toDataURL('image/png')}catch(_){return undefined}
+ }
+ async function swReg(){
+  if(!('serviceWorker' in navigator))return null;
+  try{await navigator.serviceWorker.register('sw.js');return await navigator.serviceWorker.ready}catch(_){return null}
+ }
+ async function showN(){
+  if(!nOn||!window.Notification||Notification.permission!=='granted')return;
+  const title=last[0]+' '+last[1],body=last[2]?'💬 '+last[2]:'دنیای ما';
+  const r=await swReg();
+  if(!r){try{window.__nn&&window.__nn.close();window.__nn=new Notification(title,{body,tag:'nana',silent:true,icon:nIcon(last[0]),dir:'rtl',lang:'fa'})}catch(_){}return}
+  try{
+   const ex=await r.getNotifications({tag:'nana'});
+   if(ex.length&&ex[0].title===title&&ex[0].body===body)return;
+   await r.showNotification(title,{body,tag:'nana',renotify:false,silent:true,requireInteraction:true,icon:nIcon(last[0]),dir:'rtl',lang:'fa'});
+  }catch(_){}
+ }
+ function btn2(){const b=document.getElementById('notifBtn2');if(b)b.textContent=nOn?'🔕 خاموش کردن اعلان معمولی':'🔔 روشن کردن اعلان معمولی وضعیت نانا'}
+ async function nStart(){
+  if(!window.Notification||!('serviceWorker' in navigator)){alert('این مرورگر اعلان رو پشتیبانی نمی‌کنه. تو آیفون باید سایت رو Add to Home Screen کنی و از روی همون باز کنی.');return}
+  let p=Notification.permission;
+  if(p!=='granted')p=await Notification.requestPermission();
+  if(p!=='granted'){alert('اجازه‌ی اعلان داده نشد. از تنظیمات سایت تو مرورگر روشنش کن.');return}
+  const r=await swReg();
+  if(!r){try{new Notification('✅ اعلان وضعیت نانا روشن شد',{silent:true})}catch(_){alert('اعلان معمولی تو گوشی به فایل sw.js هم نیاز داره. این فایل اینجا نیست، پس از «اعلان رسانه‌ای» استفاده کن که تو همین یه فایل کار می‌کنه.');return}}
+  nOn=true;try{localStorage.setItem('nanaNotif','1')}catch(_){}
+  btn2();showN();
+ }
+ async function nStop(){
+  nOn=false;try{localStorage.removeItem('nanaNotif')}catch(_){}
+  try{const r=await swReg();if(r)(await r.getNotifications({tag:'nana'})).forEach(n=>n.close())}catch(_){}
+  btn2();
+ }
+ document.addEventListener('click',e=>{if(e.target&&e.target.id==='notifBtn2')nOn?nStop():nStart()});
+ btn2();
+ function btn(){const b=document.getElementById('notifBtn');if(b)b.textContent=on?'🔕 خاموش کردن اعلان رسانه‌ای':'🎵 روشن کردن اعلان رسانه‌ای (مثل آهنگ)'}
  async function start(){
   if(!ms||!window.MediaMetadata){alert('این مرورگر اعلان رسانه رو پشتیبانی نمی‌کنه. تو کروم اندروید یا سافاری آیفون امتحان کن.');return}
   au=au||new Audio(silentWav());au.loop=true;au.volume=1;
