@@ -109,6 +109,12 @@ a{color:var(--sky);text-decoration:none;font-weight:600}
 .topstat small{color:var(--muted);font-weight:400;font-size:12px}
 body.gaming .topstat{display:none!important}
 #homeChip{display:none!important}
+.tool.bag{flex:1 1 auto;font-size:14px;padding:8px 10px;min-width:0}
+.bag-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.bag-grid .tool{min-width:0;padding:10px 4px;font-size:13px}
+.bag-h{grid-column:1/-1;font-size:12px;color:var(--muted);margin-top:4px}
+.rot{width:56px!important;height:56px!important;font-size:24px!important;flex:0 0 auto}
+#pingBadge{position:fixed;top:max(6px,env(safe-area-inset-top,0px));left:8px;z-index:60;font:600 11px/1 system-ui,sans-serif;padding:3px 6px;border-radius:8px;background:#000000a0;color:#fff;pointer-events:none;direction:ltr;font-variant-numeric:tabular-nums}
 .foot{display:flex;justify-content:space-between;align-items:center;margin-top:22px;font-size:12px;color:var(--muted)}
 .foot .x{font-size:13px;color:var(--muted)}
 audio{width:100%;height:38px;margin-top:8px;display:block}
@@ -215,6 +221,7 @@ body.gaming .stage canvas,body.gaming #gc{border-radius:14px}
   </div>
 </section>
 
+<div id="pingBadge" hidden></div>
 <div id="app" hidden>
 <button type="button" class="topstat only-him" id="topStatus" onclick="go('vibe')" aria-live="polite" hidden></button>
 
@@ -248,7 +255,14 @@ body.gaming .stage canvas,body.gaming #gc{border-radius:14px}
         <button data-d="r" style="grid-area:r" aria-label="راست">▶</button>
         <button data-d="d" style="grid-area:d" aria-label="پایین">▼</button>
       </div>
+      <button class="act rot" id="rotBtn" hidden aria-label="چرخاندن">🔄</button>
       <button class="act" id="actBtn">کار کن</button>
+    </div>
+    <div class="shop" id="bag" hidden>
+      <div class="shop-card">
+        <div class="shop-head"><b>🎒 کوله‌پشتی</b><span id="bagHand"></span><button class="x" id="bagClose" aria-label="بستن">✕</button></div>
+        <div class="bag-grid" id="bagList"></div>
+      </div>
     </div>
     <div class="shop" id="shop" hidden>
       <div class="shop-card">
@@ -329,20 +343,31 @@ addEventListener('hashchange',()=>{if(!ROLE)return;const h=location.hash.slice(1
 
 /* ---------- server ---------- */
 const hdr=()=>{const h={apikey:CFG.anon,'Content-Type':'application/json'};if(CFG.anon.startsWith('eyJ'))h.Authorization='Bearer '+CFG.anon;return h};
-async function rpc(fn,args){
-  const r=await fetch(CFG.url.replace(/\/$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',headers:hdr(),body:JSON.stringify(args)});
+async function rpc(fn,args,ka){
+  const r=await fetch(CFG.url.replace(/\/$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',headers:hdr(),body:JSON.stringify(args),keepalive:!!ka});
   if(!r.ok)throw new Error(await r.text());
   return r.json();
 }
 function setNet(t){const n=$('net');if(n)n.textContent=t||''}
-const pushT={};
-function persist(key,val){
-  save(key,val);
-  if(ONLINE&&ROLE&&PIN){
-    clearTimeout(pushT[key]);
-    pushT[key]=setTimeout(()=>rpc('set_kv',{p_pin:PIN,p_key:key,p_value:val}).then(()=>setNet('')).catch(()=>setNet('ذخیره روی سرور انجام نشد. اینترنت یا VPN رو چک کن.')),1200);
-  }
+const pushT={},unsent={};
+const markUnsent=()=>save('unsentKeys',Object.keys(unsent));
+let unsentLoaded=false;
+function loadUnsent(){if(unsentLoaded)return;unsentLoaded=true;load('unsentKeys',[]).forEach(k=>{const v=load(k,null);if(v!==null)unsent[k]=v})}
+function sendKey(key,ka){
+  if(!(ONLINE&&ROLE&&PIN)||!(key in unsent))return Promise.resolve();
+  const val=unsent[key];
+  return rpc('set_kv',{p_pin:PIN,p_key:key,p_value:val},ka)
+    .then(()=>{if(unsent[key]===val){delete unsent[key];markUnsent()}setNet('')})
+    .catch(()=>setNet('ذخیره روی سرور انجام نشد. دوباره تلاش می‌کنم، برنامه رو نبند.'));
 }
+function persist(key,val){
+  save(key,val);unsent[key]=val;markUnsent();
+  clearTimeout(pushT[key]);pushT[key]=setTimeout(()=>sendKey(key),250);
+}
+function flushAll(ka){loadUnsent();return Promise.all(Object.keys(unsent).map(k=>{clearTimeout(pushT[k]);return sendKey(k,ka)}))}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)flushAll(true);else if(ROLE&&ONLINE)pull()});
+addEventListener('pagehide',()=>flushAll(true));
+addEventListener('online',()=>flushAll());
 
 /* ---------- live link: positions, kisses and world edits go over a broadcast channel (no database writes) ---------- */
 const Net=(()=>{
@@ -350,6 +375,7 @@ const Net=(()=>{
   const room='nana-'+String(CFG.url||'local').replace(/^https?:\/\//,'').split('.')[0];
   const topic='realtime:'+room;
   const emit=m=>subs.forEach(f=>{try{f(m)}catch(e){}});
+  const hbAt={};
   const raw=o=>{if(ws&&ws.readyState===1){ws.send(JSON.stringify(o));return true}return false};
   function drop(){
     clearInterval(hbT);joined=false;
@@ -362,10 +388,11 @@ const Net=(()=>{
     catch(e){ws=null;drop();return}
     ws.onopen=()=>{
       raw({topic,event:'phx_join',payload:{config:{broadcast:{self:false,ack:false},presence:{key:''},private:false},access_token:CFG.anon},ref:String(++ref),join_ref:'1'});
-      clearInterval(hbT);hbT=setInterval(()=>raw({topic:'phoenix',event:'heartbeat',payload:{},ref:String(++ref)}),25000);
+      clearInterval(hbT);const beat=()=>{const r=String(++ref);hbAt[r]=performance.now();raw({topic:'phoenix',event:'heartbeat',payload:{},ref:r})};beat();hbT=setInterval(beat,4000);
     };
     ws.onmessage=ev=>{
       let m;try{m=JSON.parse(ev.data)}catch(e){return}
+      if(m.event==='phx_reply'&&hbAt[m.ref]!==undefined){window.__ping=Math.round(performance.now()-hbAt[m.ref]);window.__pingAt=Date.now();delete hbAt[m.ref]}
       if(m.topic!==topic)return;
       if(m.event==='phx_reply'&&!joined&&m.payload&&m.payload.status==='ok'){joined=true;emit({t:'_up'})}
       else if(m.event==='broadcast'&&m.payload&&m.payload.payload)emit(m.payload.payload);
@@ -553,15 +580,16 @@ function enterApp(){
 async function pull(first){
  if(!ONLINE||!PIN)return;
  try{
+  loadUnsent();await flushAll();
   const r=await rpc('get_all',{p_pin:PIN});
   if(!r)throw new Error('bad-pin');
   ROLE=r.role;const d=r.data||{};
   if(ROLE==='him'||first){
-    if(d.vibe)vibe=d.vibe;
-    if(d.plan)plan=d.plan;
+    if(d.vibe&&!unsent.vibe)vibe=d.vibe;
+    if(d.plan&&!unsent.plan)plan=d.plan;
   }
   if(window.farmSync)window.farmSync(d,first);
-  if(Array.isArray(d.songs))songs=d.songs;
+  if(Array.isArray(d.songs)&&!unsent.songs)songs=d.songs;
   if(ROLE==='her'&&first){ /* first sync: push local data the server doesn't have yet */
     if(!d.vibe)persist('vibe',vibe);
     if(!d.plan)persist('plan',plan);
@@ -589,6 +617,14 @@ $('logoutBtn').addEventListener('click',()=>{
  try{localStorage.removeItem('pin');sessionStorage.removeItem('demoRole')}catch(e){}
  ROLE=null;PIN=null;location.hash='';showLogin();
 });
+setInterval(()=>{
+  const b=$('pingBadge');if(!b)return;
+  if(!ROLE||!ONLINE||$('app').hidden){b.hidden=true;return}
+  b.hidden=false;
+  const ok=window.__pingAt&&Date.now()-window.__pingAt<12000&&Net.live();
+  if(!ok){b.textContent='×';b.style.color='#ff6b6b';return}
+  const p=window.__ping;b.textContent=p;b.style.color=p<120?'#7CFC9A':p<300?'#ffe36e':'#ff6b6b';
+},1000);
 let pc=0;
 setInterval(()=>{pc++;if(!ROLE)return;if(!ONLINE){renderHome();return}if(!$('farm').hidden||pc%3===0)pull()},7000);
 
@@ -613,17 +649,29 @@ const DECOR={
   scarecrow:{n:'مترسک',ic:'🎃',price:40,block:true},
   mailbox:{n:'صندوق نامه',ic:'📮',price:25,block:true,use:'mail'}};
 const HDECOR={
-  sofa:{n:'مبل',ic:'🛋️',price:45,block:true,sit:['#ff9fc3',-1]},
+  sofa:{n:'مبل دونفره',ic:'🛋️',price:60,block:true,sit:['#ff9fc3',-1]},
   chair:{n:'صندلی',ic:'🪑',price:20,block:true,sit:['#c98f6b',-1]},
   tv:{n:'تلویزیون',ic:'📺',price:60,block:true,use:'tv'},
   phone:{n:'میز و موبایل',ic:'📱',price:35,block:true,use:'phone'},
   radio:{n:'رادیو',ic:'📻',price:30,block:true,use:'radio'},
-  piano:{n:'پیانو',ic:'🎹',price:90,block:true,use:'piano'},
+  piano:{n:'پیانو',ic:'🎹',price:100,block:true,use:'piano'},
   fridge:{n:'یخچال',ic:'🧊',price:55,block:true,use:'fridge'},
   plant:{n:'گلدان',ic:'🪴',price:12,block:true},
   lamp2:{n:'آباژور',ic:'🕯️',price:28,block:true},
-  rug:{n:'فرش گرد',ic:'🟣',price:25}};
+  rug:{n:'فرش گرد بزرگ',ic:'🟣',price:35}};
 const ITEM=Object.assign({},DECOR,HDECOR);
+/* size in tiles [w,h,rotatable]. A big item is stored as 'type@rotation' on its first tile and '~dx,dy' (offset back to it) on the others */
+const SIZE={sofa:[2,1,1],piano:[2,1,0],rug:[2,2,0]};
+let rot=0;
+const base=v=>v?String(v).split('@')[0]:v;
+const rotOf=v=>{const i=String(v).indexOf('@');return i<0?0:(+String(v).slice(i+1)||0)};
+function anchorOf(map,x,y){
+  const v=map[x+','+y];if(!v)return null;
+  if(v[0]==='~'){const[a,b]=v.slice(1).split(',').map(Number);const ax=x+a,ay=y+b,av=map[ax+','+ay];return av?{x:ax,y:ay,v:av}:null}
+  return{x,y,v};
+}
+const typeAt=(map,x,y)=>{const a=anchorOf(map,x,y);return a?base(a.v):null};
+function dims(type,r){const z=SIZE[type];if(!z)return[1,1];return(z[2]&&r%2)?[z[1],z[0]]:[z[0],z[1]]}
 const FLAT={flower:1,picnic:1,rug:1};
 /* accessories: one per slot at a time */
 const LOOKS={
@@ -694,7 +742,7 @@ cv.width=VW*TS;cv.height=VH*TS;
 
 /* ----- state: shared world (coins, soil, furniture...) + personal part (energy, sleep, position, clothes) ----- */
 const SHARED=['coins','inv','soil','unlocked','items','decor','hdecor','on'];
-const PERSONAL=['energy','sleepUntil','pos','look','own','eatAt'];
+const PERSONAL=['energy','sleepUntil','pos','look','own','eatAt','ts'];
 const pick=(o,ks)=>{const r={};ks.forEach(k=>{if(o&&o[k]!==undefined)r[k]=o[k]});return r};
 function norm(o){
   o=o||{};
@@ -707,7 +755,7 @@ function norm(o){
     unlocked:Object.assign({wheat:1},o.unlocked||{}),
     items:Object.assign(items,o.items||{}),
     decor:o.decor||{},hdecor:o.hdecor||{},on:o.on||{},
-    own:Object.assign(own,o.own||{}),look:o.look||{},eatAt:o.eatAt||0};
+    own:Object.assign(own,o.own||{}),look:o.look||{},eatAt:o.eatAt||0,ts:o.ts||0};
 }
 let S=norm({}),inited='';
 const otherRole=()=>ROLE==='her'?'him':'her';
@@ -725,12 +773,12 @@ const sharedOf=()=>{const r=pick(S,SHARED);r.v=3;r.rev=S.rev;return r};
 const personalOf=()=>pick(S,PERSONAL);
 const clone=o=>JSON.parse(JSON.stringify(o));
 function store(){ /* shared world changed (and maybe personal too) */
-  S.rev=Math.max(Date.now(),S.rev+1);
+  S.rev=Math.max(Date.now(),S.rev+1);S.ts=Date.now();
   const w=clone(sharedOf());
   persist('farm',w);persist('pl_'+ROLE,clone(personalOf()));
   Net.send({t:'world',rev:S.rev,w});
 }
-function storeP(){persist('pl_'+ROLE,clone(personalOf()))}
+function storeP(){S.ts=Date.now();persist('pl_'+ROLE,clone(personalOf()))}
 function applyWorld(w){
   if(!w)return;
   const n=norm(w);
@@ -771,17 +819,17 @@ const cam={x:0,y:0};
 const tileAt=(x,y)=>scene==='in'?((y<0||y>=RH||x<0||x>=RW)?'#':ROOM[y][x]):mapAt(x,y);
 const faceTile=()=>{const v=VEC[P.dir];return[P.x+v[0],P.y+v[1]]};
 const itemMap=()=>scene==='in'?S.hdecor:S.decor;
-const itemAtTile=(x,y)=>itemMap()[x+','+y]||null;
+const itemAtTile=(x,y)=>typeAt(itemMap(),x,y);
 const seatKind=(x,y)=>{const it=itemAtTile(x,y);return it&&ITEM[it]&&ITEM[it].sit?it:null};
 const blocked=(x,y)=>{
   const ch=tileAt(x,y);
   if(otherAt(x,y))return true;
   if(scene==='in'){
     if('#BKT'.includes(ch)||ch==='Q')return true;
-    const it=S.hdecor[x+','+y];return !!(it&&HDECOR[it]&&HDECOR[it].block);
+    const it=typeAt(S.hdecor,x,y);return !!(it&&HDECOR[it]&&HDECOR[it].block);
   }
   if('THDSWBQ'.includes(ch))return true;
-  const d=S.decor[x+','+y];if(d&&DECOR[d]&&DECOR[d].block)return true;
+  const d=typeAt(S.decor,x,y);if(d&&DECOR[d]&&DECOR[d].block)return true;
   return cat.x===x&&cat.y===y;
 };
 function spawnPoint(){return scene==='in'?[6,10]:[7,8]}
@@ -844,17 +892,34 @@ function toolList(){
   Object.keys(ITEM).forEach(k=>{if(S.items[k]>0)l.push(k)});
   return l;
 }
+function toolInfo(t){
+  if(t==='hoe')return{ic:'⛏️',nm:'کلنگ',sub:''};
+  if(t==='water')return{ic:'💧',nm:'آب‌پاش',sub:''};
+  if(t==='pick')return{ic:'🧺',nm:'جمع‌کن',sub:''};
+  if(CROPS[t])return{ic:CROPS[t].e,nm:CROPS[t].n,sub:fa(CROPS[t].seed)+' 🪙'};
+  return{ic:ITEM[t].ic,nm:ITEM[t].n,sub:'× '+fa(S.items[t])};
+}
 function renderTools(){
   const l=toolList();if(!l.includes(tool))tool='hoe';
-  $('tools').innerHTML=l.map(t=>{
-    let ic,nm,sub='';
-    if(t==='hoe'){ic='⛏️';nm='کلنگ'}else if(t==='water'){ic='💧';nm='آب‌پاش'}else if(t==='pick'){ic='🧺';nm='جمع‌کن'}
-    else if(CROPS[t]){ic=CROPS[t].e;nm=CROPS[t].n;sub=fa(CROPS[t].seed)+' 🪙'}
-    else{ic=ITEM[t].ic;nm=ITEM[t].n;sub='× '+fa(S.items[t])}
-    return `<button class="tool${t===tool?' on':''}" data-t="${t}" aria-label="${nm}">${ic} ${nm}${sub?`<small>${sub}</small>`:''}</button>`}).join('');
+  const c=toolInfo(tool);
+  $('tools').innerHTML=`<button class="tool bag" data-bag="1" aria-label="کوله‌پشتی">🎒 کوله‌پشتی<small>در دست: ${c.ic} ${c.nm}${c.sub?' · '+c.sub:''}</small></button>`;
+  $('rotBtn').hidden=!(SIZE[tool]&&SIZE[tool][2]&&S.items[tool]>0);
+  if(!$('bag').hidden)renderBag();
 }
+function renderBag(){
+  const l=toolList(),c=toolInfo(tool);
+  const groups=[['ابزار',l.filter(t=>t==='hoe'||t==='water'||t==='pick')],['بذر',l.filter(t=>CROPS[t])],['وسایل',l.filter(t=>ITEM[t])]];
+  $('bagHand').textContent='در دست: '+c.ic+' '+c.nm;
+  $('bagList').innerHTML=groups.filter(g=>g[1].length).map(g=>`<div class="bag-h">${g[0]}</div>`+g[1].map(t=>{const i=toolInfo(t);return `<button class="tool${t===tool?' on':''}" data-t="${t}" aria-label="${i.nm}">${i.ic}<br>${i.nm}${i.sub?`<small>${i.sub}</small>`:''}</button>`}).join('')).join('');
+}
+function openBag(){renderBag();$('bag').hidden=false}
+function closeBag(){$('bag').hidden=true}
 function setTool(t){tool=t;renderTools()}
-$('tools').addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(b)setTool(b.dataset.t)});
+$('tools').addEventListener('click',e=>{if(e.target.closest('[data-bag]'))openBag()});
+$('bagList').addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(b){setTool(b.dataset.t);closeBag()}});
+$('bag').addEventListener('click',e=>{if(e.target===$('bag'))closeBag()});
+$('bagClose').addEventListener('click',closeBag);
+$('rotBtn').addEventListener('click',()=>{rot=(rot+1)%4});
 
 function spend(n){
   if(S.energy<n){say('انرژی‌ت تموم شده 😴 برو توی خونه و روی تخت بخواب');return false}
@@ -921,12 +986,15 @@ function kiss(){
   say(ROLE==='her'?'💋 عشقت رو بوسیدی':'💋 نانا رو بوسیدی');
 }
 function sitOn(fx,fy){
-  P.px=P.x;P.py=P.y;P.x=fx;P.y=fy;P.anim=0;P.sit=1;P.dir='d';posDirty=true;
+  const a=anchorOf(itemMap(),fx,fy);let dr='d';if(a&&a.v.includes('@')&&base(a.v)==='sofa')dr=['d','l','u','r'][rotOf(a.v)%4];
+  P.px=P.x;P.py=P.y;P.x=fx;P.y=fy;P.anim=0;P.sit=1;P.dir=dr;posDirty=true;
   say('نشستی 🪑 برای بلند شدن یه جهت رو بزن');
 }
 function pickUp(fx,fy){
-  const map=itemMap(),k=fx+','+fy,it=map[k];if(!it)return;
-  delete map[k];delete S.on[k];S.items[it]++;
+  const map=itemMap(),a=anchorOf(map,fx,fy);if(!a)return;
+  const it=base(a.v),[w,h]=a.v.includes('@')?dims(it,rotOf(a.v)):[1,1];
+  for(let j=0;j<h;j++)for(let i=0;i<w;i++){const kk=(a.x+i)+','+(a.y+j);delete map[kk];delete S.on[kk]}
+  S.items[it]++;
   say(`${ITEM[it].n} رو برداشتی`);renderTools();store();
 }
 function useItem(it,k){
@@ -961,16 +1029,21 @@ function itemAct(it,k,fx,fy){
 }
 function place(fx,fy,ch){
   if(S.items[tool]<1)return;
-  if(ch!=='.')return say('این‌جا جای وسیله نیست. یه جای خالی پیدا کن.');
-  if(scene==='in'&&fx===6&&fy>=9)return say('جلوی در رو خالی بذار 🚪');
-  if(otherAt(fx,fy)||(scene==='out'&&cat.x===fx&&cat.y===fy))return say('الان این‌جا کسی هست');
-  itemMap()[fx+','+fy]=tool;S.items[tool]--;
+  const z=SIZE[tool],r=z&&z[2]?rot%4:0,[w,h]=dims(tool,r),map=itemMap();
+  for(let j=0;j<h;j++)for(let i=0;i<w;i++){
+    const tx=fx+i,ty=fy+j;
+    if(tileAt(tx,ty)!=='.'||map[tx+','+ty])return say(z?'اینجا جای کافی برای این وسیله نیست. یه جای خالی‌تر پیدا کن یا بچرخونش 🔄':'این‌جا جای وسیله نیست. یه جای خالی پیدا کن.');
+    if(scene==='in'&&tx===6&&ty>=9)return say('جلوی در رو خالی بذار 🚪');
+    if(otherAt(tx,ty)||(scene==='out'&&cat.x===tx&&cat.y===ty))return say('الان این‌جا کسی هست');
+  }
+  for(let j=0;j<h;j++)for(let i=0;i<w;i++)map[(fx+i)+','+(fy+j)]=(i||j)?'~'+(-i)+','+(-j):(z?tool+'@'+r:tool);
+  S.items[tool]--;
   say(`${ITEM[tool].n} رو گذاشتی`);renderTools();store();
 }
 function actIn(fx,fy){
   const ch=tileAt(fx,fy),k=fx+','+fy;
   if(ch==='B')return goSleep();
-  const it=S.hdecor[k];if(it)return itemAct(it,k,fx,fy);
+  const it=typeAt(S.hdecor,fx,fy);if(it){const an=anchorOf(S.hdecor,fx,fy);return itemAct(it,an.x+','+an.y,fx,fy)}
   if(ch==='K')return say('یه قفسه‌ی کتاب 📚');
   if(ch==='Q')return say('یه گلدون 🪴');
   if(ch==='T')return say('میز ناهارخوری');
@@ -982,7 +1055,7 @@ function actOut(fx,fy){
   const ch=tileAt(fx,fy),k=fx+','+fy;
   if(cat.x===fx&&cat.y===fy)return petCat();
   if(ch==='D')return enterHouse();
-  const it=S.decor[k];if(it)return itemAct(it,k,fx,fy);
+  const it=typeAt(S.decor,fx,fy);if(it){const an=anchorOf(S.decor,fx,fy);return itemAct(it,an.x+','+an.y,fx,fy)}
   if(ch==='Q')return openShop();
   if(ch==='S')return sell();
   if(ch==='W')return fish();
@@ -992,7 +1065,7 @@ function actOut(fx,fy){
   say('این‌جا کاری نمی‌شه کرد.');
 }
 function act(){
-  if(!$('shop').hidden)return;
+  if(!$('shop').hidden||!$('bag').hidden)return;
   if(S.sleepUntil>Date.now())return say(`خوابیده‌ای 😴 ${fmt(S.sleepUntil-Date.now())} تا بیدار شدن`);
   const [fx,fy]=faceTile();
   if(otherAt(fx,fy))return kiss();
@@ -1293,8 +1366,37 @@ function itemSprite(type,px,py,t,key){
   }
 }
 /* the cushion in front of a seated character, so legs vanish into the seat */
+function bigSprite(type,r,px,py,t){
+  if(type==='sofa'){
+    const D='#ff7fae',L='#ff9fc3',Hh='#ffc2d8',F='#8a5a44';
+    if(r===0){R(px,py+2,32,6,D);R(px,py+2,32,1,Hh);R(px+2,py+8,28,7,L);R(px+2,py+8,28,1,Hh);R(px,py+5,3,10,D);R(px+29,py+5,3,10,D);R(px+16,py+8,1,7,D);R(px+1,py+15,2,1,F);R(px+29,py+15,2,1,F)}
+    else if(r===2){R(px,py+9,32,6,D);R(px,py+14,32,1,'#c44c78');R(px+2,py+2,28,7,L);R(px,py+1,3,10,D);R(px+29,py+1,3,10,D);R(px+16,py+2,1,7,D);R(px+2,py+15,2,1,F);R(px+28,py+15,2,1,F)}
+    else if(r===1){R(px+10,py,6,32,D);R(px+15,py,1,32,'#c44c78');R(px+1,py+2,9,28,L);R(px+1,py,10,3,D);R(px+1,py+29,10,3,D);R(px+1,py+16,9,1,D)}
+    else{R(px,py,6,32,D);R(px,py,1,32,Hh);R(px+6,py+2,9,28,L);R(px+5,py,10,3,D);R(px+5,py+29,10,3,D);R(px+6,py+16,9,1,D)}
+  }
+  else if(type==='piano'){
+    R(px,py+3,32,2,'#4a4f66');R(px,py+5,32,9,'#2f3b55');R(px+1,py+9,30,4,'#ffffff');
+    for(let i=1;i<10;i++)R(px+1+i*3,py+9,1,4,'#cbd2e0');
+    for(let i=0;i<9;i++)if(i!==2&&i!==6)R(px+3+i*3,py+9,2,2,'#2f3b55');
+    R(px+1,py+14,2,2,'#4a4f66');R(px+29,py+14,2,2,'#4a4f66');
+  }
+  else if(type==='rug'){
+    ctx.fillStyle='#a45fd6';ctx.beginPath();ctx.arc(px+16,py+16,15,0,7);ctx.fill();
+    ctx.fillStyle='#d6a3f2';ctx.beginPath();ctx.arc(px+16,py+16,11,0,7);ctx.fill();
+    ctx.fillStyle='#a45fd6';ctx.beginPath();ctx.arc(px+16,py+16,6,0,7);ctx.fill();
+    ctx.fillStyle='#f3d9ff';ctx.beginPath();ctx.arc(px+16,py+16,2.5,0,7);ctx.fill();
+  }
+}
+function faceBox(fx,fy,t){
+  const z=SIZE[tool],hold=z&&S.items[tool]>0;
+  if(!hold){ctx.strokeStyle='#f2578a';ctx.lineWidth=1;ctx.strokeRect(fx*TS+.5,fy*TS+.5,TS-1,TS-1);return}
+  const r=z[2]?rot%4:0,[w,h]=dims(tool,r);
+  ctx.globalAlpha=.55;bigSprite(tool,r,fx*TS,fy*TS,t);ctx.globalAlpha=1;
+  ctx.strokeStyle='#f2578a';ctx.lineWidth=1;ctx.strokeRect(fx*TS+.5,fy*TS+.5,w*TS-1,h*TS-1);
+}
 function seatFront(x,y){
   const it=seatKind(x,y);if(!it)return;
+  const an=anchorOf(itemMap(),x,y);if(an&&an.v.includes('@'))return;
   const c=ITEM[it].sit[0];if(!c)return;
   const px=x*TS,py=y*TS;
   R(px+1,py+10,14,7,c);R(px+1,py+10,14,1,'#ffffff66');
@@ -1420,11 +1522,11 @@ function drawOutside(t){
   const night=isNight();
   house(night);stall();shopBuilding(night);
   if(!asleepView()){const [dx,dy]=VEC[P.dir],fx=P.x+dx,fy=P.y+dy;
-    if(P.anim>=1&&mapAt(fx,fy)!=='T'){ctx.strokeStyle='#f2578a';ctx.lineWidth=1;ctx.strokeRect(fx*TS+.5,fy*TS+.5,TS-1,TS-1)}}
+    if(P.anim>=1&&mapAt(fx,fy)!=='T')faceBox(fx,fy,t)}
   const ents=[];
   for(let y=y0;y<=Math.min(H-1,y1+2);y++)for(let x=x0;x<=x1;x++){
     if(MAP[y][x]==='T')ents.push([y*TS,()=>tree(x*TS,y*TS,x,y,t)]);
-    const d=S.decor[x+','+y];if(d)ents.push([y*TS+(FLAT[d]?-4:0),()=>itemSprite(d,x*TS,y*TS,t,x+','+y)]);
+    const d=typeAt(S.decor,x,y);if(d&&S.decor[x+','+y][0]!=='~')ents.push([y*TS+(FLAT[d]?-4:0),()=>itemSprite(d,x*TS,y*TS,t,x+','+y)]);
   }
   const hop=cat.hop>0?-Math.round(Math.sin(cat.hop/350*Math.PI)*3):0;
   const ca=cat.anim,cx=(cat.px+(cat.x-cat.px)*ca)*TS,cy=(cat.py+(cat.y-cat.py)*ca)*TS;
@@ -1489,12 +1591,17 @@ function drawRoom(t){
   const herSl=ROLE==='her'?mySl:oSl,himSl=ROLE==='him'?mySl:oSl;
   drawBed(t,herSl,himSl,ROLE==='her'?S.look:O.look,ROLE==='him'?S.look:O.look);
   const ents=[];
-  for(const k in S.hdecor){const[x,y]=k.split(',').map(Number),it=S.hdecor[k];ents.push([y*TS+(FLAT[it]?-4:0),()=>itemSprite(it,x*TS,y*TS,t,k)])}
+  for(const k in S.hdecor){
+    const v=S.hdecor[k];if(v[0]==='~')continue;
+    const[x,y]=k.split(',').map(Number),it=base(v);
+    if(v.includes('@')&&SIZE[it]){const r=rotOf(v),h=dims(it,r)[1];ents.push([(FLAT[it]?y*TS-4:(y+h-1)*TS),()=>bigSprite(it,r,x*TS,y*TS,t)])}
+    else ents.push([y*TS+(FLAT[it]?-4:0),()=>itemSprite(it,x*TS,y*TS,t,k)])
+  }
   if(!mySl)ents.push([entY(P),()=>{drawChar(P,gSelf(),t,S.look);if(P.sit&&P.anim>=1)seatFront(P.x,P.y)}]);
   if(oVisible())ents.push([entY(O),()=>{drawChar(O,gOther(),t,O.look);if(O.sit&&O.anim>=1)seatFront(O.x,O.y)}]);
   ents.sort((p,q)=>p[0]-q[0]).forEach(e=>e[1]());
   if(!mySl){const [dx,dy]=VEC[P.dir],fx=P.x+dx,fy=P.y+dy;
-    if(P.anim>=1&&ROOM[fy]&&ROOM[fy][fx]&&ROOM[fy][fx]!=='#'){ctx.strokeStyle='#f2578a';ctx.lineWidth=1;ctx.strokeRect(fx*TS+.5,fy*TS+.5,TS-1,TS-1)}}
+    if(P.anim>=1&&ROOM[fy]&&ROOM[fy][fx]&&ROOM[fy][fx]!=='#')faceBox(fx,fy,t)}
   drawFx();
   ctx.restore();
   if(mySl){ctx.fillStyle='rgba(20,30,90,.38)';ctx.fillRect(0,0,cv.width,cv.height)}
@@ -1518,7 +1625,7 @@ window.farmSync=(d,first)=>{
   initFor(ROLE);
   if(d.farm&&newer(d.farm))applyWorld(d.farm);
   const mine=d['pl_'+ROLE]||(ROLE==='her'&&d.farm&&d.farm.v===2?d.farm:null);
-  if(first&&mine){const np=norm(mine);PERSONAL.forEach(k=>{S[k]=np[k]})}
+  if(first&&mine){const np=norm(mine);if((np.ts||0)>(S.ts||0))PERSONAL.forEach(k=>{S[k]=np[k]})}
   if(first&&!d.farm)store();
   else if(first&&!d['pl_'+ROLE])storeP();
   const op=d['pl_'+otherRole()];if(op)setOtherStored(op);
