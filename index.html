@@ -147,6 +147,39 @@ body.gaming .wrap,body.gaming #app{height:100%}
 .tool{white-space:nowrap}
 .tabs button{font-size:12px;padding:6px 2px}
 .act{font-size:15px;line-height:1.3}
+
+/* v4: farm screen only -> black background on every phone; the rest of the site keeps its pink/white/blue look */
+html:has(body.gaming){background:#000}
+body.gaming{
+  background:#000 !important;background-image:none !important;
+  --g1:#14141c;--g2:#14141c;--g3:#14141c;--card:#14141c;--item:#22222e;--field:#22222e;--line:#33334a;
+  --track:#2c2c3c;--muted:#aaa6b8;--text:#f5eff7;--shadow:#00000099;color:#f5eff7;
+}
+body.gaming .gbox{background:#0d0d13;border:1px solid #23232f;box-shadow:none}
+body.gaming #farm .back{background:#1b1b26;color:#f5eff7;box-shadow:none}
+body.gaming .shop-card{background:#14141c;color:#f5eff7}
+body.gaming .item{background:#1d1d28;border-color:#2c2c3a}
+body.gaming .stage canvas,body.gaming #gc{border-radius:14px}
+
+/* no copy / cut / select bubble when a button is held, and no browser menu on long press */
+#farm,#farm *{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#farm button,#farm canvas{touch-action:manipulation}
+
+/* nicer buttons */
+.dpad{grid-template-columns:repeat(3,46px);grid-template-rows:repeat(3,42px);gap:4px}
+.dpad button{border-radius:16px;background:linear-gradient(180deg,#2b2b3a,#1e1e2a);color:#f5eff7;font-size:19px;
+  border:1px solid #3a3a4e;box-shadow:0 3px 0 #0a0a10,0 6px 14px #00000080;transition:transform .06s,box-shadow .06s,background .1s}
+.dpad button:active{transform:translateY(3px);box-shadow:0 0 0 #0a0a10;background:linear-gradient(180deg,#3a3a52,#2a2a3c)}
+.act{width:88px;height:88px;border:3px solid #ffffff22;box-shadow:0 4px 0 #6a2f58,0 8px 20px #ff6fa066;
+  background:linear-gradient(135deg,var(--pink),var(--sky));transition:transform .06s,box-shadow .06s}
+.act:active{transform:translateY(4px) scale(.97);box-shadow:0 0 0 #6a2f58,0 2px 10px #ff6fa066;background:linear-gradient(135deg,var(--pink),var(--sky))}
+.tool{background:#1d1d28;border:1.5px solid #33334a;border-radius:14px;color:#f5eff7;min-width:68px;transition:transform .06s}
+.tool:active{transform:scale(.95)}
+.tool.on{background:#2a2036;border-color:var(--pink);box-shadow:0 0 0 2px var(--pink) inset,0 0 12px #ff6fa044}
+.tool small{color:#b9b4c6}
+.tabs button{background:#1d1d28;border-color:#33334a;color:#f5eff7;border-radius:14px}
+.tabs button.on{border-color:var(--pink);box-shadow:0 0 0 2px var(--pink) inset}
+.shop .btn,.btn.sm{border-radius:12px}
 </style>
 </head>
 <body>
@@ -279,7 +312,7 @@ let ROLE=null,PIN=null;
 
 setTimeout(()=>$('loader').classList.add('hide'),1600);
 
-function show(id){SECTIONS.forEach(s=>$(s).hidden=s!==id);document.body.classList.toggle('gaming',id==='farm');scrollTo(0,0)}
+function show(id){SECTIONS.forEach(s=>$(s).hidden=s!==id);document.body.classList.toggle('gaming',id==='farm');(function(){let m=document.querySelector('meta[name=theme-color]');if(!m){m=document.createElement('meta');m.name='theme-color';document.head.appendChild(m)}if(!window.__tc)window.__tc=m.content||'';m.content=id==='farm'?'#000000':window.__tc})();scrollTo(0,0)}
 function go(id){location.hash=id==='home'?'':id;show(id)}
 addEventListener('hashchange',()=>{if(!ROLE)return;const h=location.hash.slice(1);show(SECTIONS.includes(h)?h:'home')});
 
@@ -691,7 +724,7 @@ const oVisible=()=>O.has&&!(O.sleepUntil>Date.now())&&O.scene===scene;
 const otherAt=(x,y)=>oVisible()&&((O.x===x&&O.y===y)||(O.anim<1&&O.px===x&&O.py===y));
 function setOtherStored(op){
   if(Date.now()-O.seen<15000)return; /* live data is fresher */
-  O.look=op.look||{};O.sleepUntil=op.sleepUntil||0;
+  O.look=op.look||{};O.sleepUntil=Math.min(op.sleepUntil||0,Date.now()+SLEEP);
   const p=op.pos;
   if(p){O.x=O.px=p.x;O.y=O.py=p.y;O.anim=1;O.dir=p.dir||'d';O.scene=p.scene||'out';O.sit=p.sit?1:0;O.has=1}
 }
@@ -702,6 +735,7 @@ const grown=c=>Date.now()-c.p+(c.b||0);
 
 let posDirty=false;
 function tick(){
+  if(S.sleepUntil>Date.now()+SLEEP){S.sleepUntil=Date.now()+SLEEP;storeP();sendPl()}
   if(S.sleepUntil&&Date.now()>=S.sleepUntil){S.sleepUntil=0;S.energy=MAXE;storeP();sendPl();say('صبح بخیر ☀️ انرژی‌ت پر شد')}
 }
 const asleep=()=>{tick();return S.sleepUntil>Date.now()};
@@ -760,7 +794,7 @@ Net.on(m=>{
     else if(m.x!==O.x||m.y!==O.y){O.px=O.x;O.py=O.y;O.x=m.x;O.y=m.y;O.anim=0;O.par^=1}
     O.dir=m.d;O.scene=m.s;O.sit=m.q?1:0;O.has=1;O.seen=Date.now();
   }
-  else if(m.t==='pl'){O.look=m.lk||{};O.sleepUntil=m.sl||0;O.seen=Date.now()}
+  else if(m.t==='pl'){O.look=m.lk||{};O.sleepUntil=Math.min(m.sl||0,Date.now()+SLEEP);O.seen=Date.now()}
   else if(m.t==='world'){if(newer({rev:m.rev}))applyWorld(Object.assign({},m.w,{rev:m.rev}))}
   else if(m.t==='kiss'){
     const same=O.has&&O.scene===scene;
@@ -1013,9 +1047,13 @@ addEventListener('keydown',e=>{
 });
 addEventListener('keyup',e=>{const d=KEYMAP[e.code];if(d)held[d]=0});
 addEventListener('blur',()=>{for(const k in held)held[k]=0});
+addEventListener('contextmenu',e=>{if(!$('farm').hidden)e.preventDefault()});
+addEventListener('selectstart',e=>{if(!$('farm').hidden&&!/INPUT|TEXTAREA/.test(e.target.tagName||''))e.preventDefault()});
+const buzz=()=>{try{navigator.vibrate&&navigator.vibrate(8)}catch(e){}};
+$('actBtn').addEventListener('pointerdown',buzz);
 document.querySelectorAll('.dpad [data-d]').forEach(b=>{
   const d=b.dataset.d;
-  b.addEventListener('pointerdown',e=>{e.preventDefault();held[d]=1});
+  b.addEventListener('pointerdown',e=>{e.preventDefault();held[d]=1;buzz()});
   ['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,()=>{held[d]=0}));
 });
 
