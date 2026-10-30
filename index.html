@@ -101,6 +101,14 @@ a{color:var(--sky);text-decoration:none;font-weight:600}
 #login{max-width:420px;margin:12vh auto 0}
 #login input[type=password]{text-align:center;direction:ltr;letter-spacing:.12em;margin:10px 0 6px}
 .chip{display:flex;gap:10px;align-items:center;justify-content:center;background:var(--card);border-radius:16px;padding:10px 14px;margin:-8px 0 18px;font-size:14px;box-shadow:0 8px 24px var(--shadow)}
+.topstat{position:sticky;top:max(8px,env(safe-area-inset-top,0px));z-index:30;display:flex;gap:10px;align-items:center;justify-content:center;width:100%;border:0;font:inherit;color:var(--text);cursor:pointer;
+  background:var(--item);border-radius:16px;padding:9px 14px;margin:0 0 14px;font-size:14px;font-weight:600;box-shadow:0 6px 20px var(--shadow);border:1.5px solid var(--line)}
+.topstat{flex-wrap:wrap}
+.topstat .e{font-size:20px}
+.topstat .nt{flex-basis:100%;text-align:center;font-weight:400;font-size:13px;color:var(--muted);overflow-wrap:anywhere;line-height:1.6}
+.topstat small{color:var(--muted);font-weight:400;font-size:12px}
+body.gaming .topstat{display:none!important}
+#homeChip{display:none!important}
 .foot{display:flex;justify-content:space-between;align-items:center;margin-top:22px;font-size:12px;color:var(--muted)}
 .foot .x{font-size:13px;color:var(--muted)}
 audio{width:100%;height:38px;margin-top:8px;display:block}
@@ -208,6 +216,7 @@ body.gaming .stage canvas,body.gaming #gc{border-radius:14px}
 </section>
 
 <div id="app" hidden>
+<button type="button" class="topstat only-him" id="topStatus" onclick="go('vibe')" aria-live="polite" hidden></button>
 
 <section id="home">
   <h1>دنیای ما</h1>
@@ -219,7 +228,8 @@ body.gaming .stage canvas,body.gaming #gc{border-radius:14px}
     <button class="tile" onclick="go('plan')"><div class="ic">🗓️</div><div><b id="tPlan">برنامه‌ی امروز</b><span id="tPlanS">کلاس‌ها و کارها به ترتیب ساعت</span></div></button>
     <button class="tile" onclick="go('music')"><div class="ic">🎧</div><div><b>پلی‌لیست</b><span>آهنگ‌های مشترک</span></div></button>
   </div>
-  <div class="foot"><span id="net"></span><button class="x" id="logoutBtn">خروج</button></div>
+  <button type="button" class="btn only-him" id="notifBtn" style="width:100%;margin-top:14px">🔔 روشن کردن اعلان ثابت وضعیت نانا</button>
+<div class="foot"><span id="net"></span><button class="x" id="logoutBtn">خروج</button></div>
 </section>
 
 <section id="farm" hidden>
@@ -498,7 +508,19 @@ function renderHome(){
   const sl=window.farmSleepText?window.farmSleepText():'';
   const[e,t]=moodOf(vibe);
   $('homeChip').innerHTML=sl?`<span>😴</span><span>نانا الان خوابه · ${sl} تا بیدار شدن</span>`:`<span>${e}</span><span>نانا: ${t}</span>`;
- }
+  const ic=sl?'😴':e, tx=sl?`نانا خوابه · ${sl} تا بیدار شدن`:`نانا: ${t}`;
+  const ts=$('topStatus');
+  const nt=(vibe&&vibe.note)?String(vibe.note).trim():'';
+  ts.innerHTML=`<span class="e">${ic}</span><span>${esc(tx)}</span><small>· بزن تا جزئیات</small>`+(nt?`<span class="nt">💬 ${esc(nt)}</span>`:'');
+  ts.hidden=false;
+  if(window.nanaMedia)window.nanaMedia(ic,tx,nt);
+  try{
+   document.title=`${ic} ${tx}`;
+   let l=document.querySelector('link[rel=icon]');
+   if(!l){l=document.createElement('link');l.rel='icon';document.head.appendChild(l)}
+   l.href='data:image/svg+xml,'+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">${ic}</text></svg>`);
+  }catch(_){}
+ }else{$('topStatus').hidden=true;document.title='دنیای ما'}
 }
 function applyRole(){
  document.body.dataset.role=ROLE;
@@ -1519,6 +1541,51 @@ requestAnimationFrame(frame);
   let r=null;try{r=JSON.parse(sessionStorage.getItem('demoRole'))}catch(e){}
   if(r==='her'||r==='him'){ROLE=r;enterApp()}else showLogin();
  }
+})();
+
+/* ---------- persistent notification (media-session trick) ---------- */
+(function(){
+ let au=null,on=false,last=['🙂','نانا',''];
+ const ms=navigator.mediaSession;
+ function silentWav(){
+  const rate=8000,secs=10,n=rate*secs,b=new ArrayBuffer(44+n),v=new DataView(b);
+  const w=(o,t)=>{for(let i=0;i<t.length;i++)v.setUint8(o+i,t.charCodeAt(i))};
+  w(0,'RIFF');v.setUint32(4,36+n,true);w(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
+  v.setUint32(24,rate,true);v.setUint32(28,rate,true);v.setUint16(32,1,true);v.setUint16(34,8,true);w(36,'data');v.setUint32(40,n,true);
+  new Uint8Array(b,44).fill(128);
+  return URL.createObjectURL(new Blob([b],{type:'audio/wav'}));
+ }
+ function art(ic){
+  try{
+   const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');
+   const g=x.createLinearGradient(0,0,256,256);g.addColorStop(0,'#ffeaf2');g.addColorStop(1,'#dff1ff');x.fillStyle=g;x.fillRect(0,0,256,256);
+   x.font='160px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(ic,128,140);
+   return [{src:c.toDataURL('image/png'),sizes:'256x256',type:'image/png'}];
+  }catch(_){return[]}
+ }
+ function push(){
+  if(!on||!ms||!window.MediaMetadata)return;
+  try{
+   ms.metadata=new MediaMetadata({title:last[1],artist:last[2]?'💬 '+last[2]:'نانا',album:'دنیای ما',artwork:art(last[0])});
+   ms.playbackState='playing';
+  }catch(_){}
+ }
+ window.nanaMedia=(ic,tx,nt)=>{last=[ic,tx,nt||''];push()};
+ function btn(){const b=document.getElementById('notifBtn');if(b)b.textContent=on?'🔕 خاموش کردن اعلان ثابت':'🔔 روشن کردن اعلان ثابت وضعیت نانا'}
+ async function start(){
+  if(!ms||!window.MediaMetadata){alert('این مرورگر اعلان رسانه رو پشتیبانی نمی‌کنه. تو کروم اندروید یا سافاری آیفون امتحان کن.');return}
+  au=au||new Audio(silentWav());au.loop=true;au.volume=1;
+  try{await au.play()}catch(e){alert('پخش شروع نشد. دوباره بزن.');return}
+  on=true;
+  try{
+   ms.setActionHandler('play',()=>{au.play();on=true;push()});
+   ms.setActionHandler('pause',()=>{au.play()});
+   ['previoustrack','nexttrack','seekbackward','seekforward','seekto'].forEach(a=>{try{ms.setActionHandler(a,null)}catch(_){}});
+  }catch(_){}
+  push();btn();
+ }
+ function stop(){on=false;if(au)au.pause();try{ms.metadata=null;ms.playbackState='none'}catch(_){}btn()}
+ document.addEventListener('click',e=>{if(e.target&&e.target.id==='notifBtn')on?stop():start()});
 })();
 </script>
 </body>
