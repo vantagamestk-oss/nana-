@@ -109,6 +109,15 @@ a{color:var(--sky);text-decoration:none;font-weight:600}
 .topstat small{color:var(--muted);font-weight:400;font-size:12px}
 body.gaming .topstat{display:none!important}
 #homeChip{display:none!important}
+.stage{position:relative}
+#bubbles{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:3}
+.bub{position:absolute;transform:translate(-50%,-100%);background:#fff;color:#2b2b3a;border-radius:12px;padding:4px 9px;font-size:12px;line-height:1.5;max-width:150px;text-align:center;box-shadow:0 2px 8px #0004;animation:bubIn .15s ease-out;direction:rtl;overflow-wrap:anywhere}
+.bub::after{content:"";position:absolute;left:50%;bottom:-5px;margin-left:-5px;border:5px solid transparent;border-bottom:0;border-top-color:#fff}
+@keyframes bubIn{from{opacity:0;transform:translate(-50%,-90%)}}
+.chatbar{position:absolute;left:10px;right:10px;bottom:10px;z-index:8;display:flex;gap:8px;background:var(--g1);padding:10px;border-radius:16px;box-shadow:0 6px 24px #0007}
+body.gaming .chatbar{background:#14141c}
+.chatbar input{flex:1;min-width:0;border-radius:12px;border:1.5px solid var(--line);background:var(--item);color:var(--text);font:inherit;font-size:15px;padding:9px 12px;direction:rtl}
+.chatbar button{border:0;border-radius:12px;padding:0 16px;font:inherit;font-weight:700;background:linear-gradient(135deg,var(--pink),var(--sky));color:var(--btn-text);cursor:pointer}
 .tool.bag{flex:1 1 auto;font-size:14px;padding:8px 10px;min-width:0}
 .bag-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .bag-grid .tool{min-width:0;padding:10px 4px;font-size:13px}
@@ -244,7 +253,7 @@ body.gaming .stage canvas,body.gaming #gc{border-radius:14px}
   <button class="back" onclick="go('home')">→ برگشت</button>
   <div class="box gbox">
     <div class="hud"><span id="hDay"></span><span id="hCoin"></span><span class="en" title="انرژی"><i id="hEn"></i></span></div>
-    <div class="stage"><canvas id="gc" aria-label="مزرعه"></canvas></div>
+    <div class="stage"><canvas id="gc" aria-label="مزرعه"></canvas><div id="bubbles"></div></div>
     <div class="inv" id="hInv"></div>
     <div class="gmsg" id="hMsg" aria-live="polite"></div>
     <div class="tools" id="tools"></div>
@@ -258,6 +267,7 @@ body.gaming .stage canvas,body.gaming #gc{border-radius:14px}
       <button class="act rot" id="rotBtn" hidden aria-label="چرخاندن">🔄</button>
       <button class="act" id="actBtn">کار کن</button>
     </div>
+    <div class="chatbar" id="chatBar" hidden><input id="chatIn" maxlength="60" placeholder="یه پیام کوتاه بنویس..." autocomplete="off"><button id="chatSend" type="button">ارسال</button></div>
     <div class="shop" id="bag" hidden>
       <div class="shop-card">
         <div class="shop-head"><b>🎒 کوله‌پشتی</b><span id="bagHand"></span><button class="x" id="bagClose" aria-label="بستن">✕</button></div>
@@ -645,7 +655,9 @@ const DECOR={
   swing:{n:'تاب',ic:'🎠',price:50,block:true,sit:['#e8b8cf',-1]},
   picnic:{n:'زیرانداز پیک‌نیک',ic:'🧺',price:30,sit:['',0]},
   campfire:{n:'آتش',ic:'🔥',price:35,block:true,use:'fire'},
-  fountain:{n:'آبنما',ic:'⛲',price:70,block:true,use:'fountain'},
+  fountain:{n:'آبنما (چهار خونه)',ic:'⛲',price:70,block:true,use:'fountain'},
+  fairy:{n:'ریسه چراغ رنگی',ic:'🎇',price:45},
+  lantern:{n:'فانوس',ic:'🏮',price:28,block:true},
   scarecrow:{n:'مترسک',ic:'🎃',price:40,block:true},
   mailbox:{n:'صندوق نامه',ic:'📮',price:25,block:true,use:'mail'}};
 const HDECOR={
@@ -661,7 +673,7 @@ const HDECOR={
   rug:{n:'فرش گرد بزرگ',ic:'🟣',price:35}};
 const ITEM=Object.assign({},DECOR,HDECOR);
 /* size in tiles [w,h,rotatable]. A big item is stored as 'type@rotation' on its first tile and '~dx,dy' (offset back to it) on the others */
-const SIZE={sofa:[2,1,1],piano:[2,1,0],rug:[2,2,0]};
+const SIZE={sofa:[2,1,1],piano:[2,1,0],rug:[2,2,0],fountain:[2,2,0],fence:[1,1,1],fairy:[3,1,1]};
 let rot=0;
 const base=v=>v?String(v).split('@')[0]:v;
 const rotOf=v=>{const i=String(v).indexOf('@');return i<0?0:(+String(v).slice(i+1)||0)};
@@ -874,6 +886,7 @@ Net.on(m=>{
     if(P.anim>=1&&oVisible()){const dx=O.x-P.x,dy=O.y-P.y;if(Math.abs(dx)+Math.abs(dy)===1)P.dir=dx>0?'r':dx<0?'l':dy>0?'d':'u'}
     say('💋 '+otherName()+' تو رو بوسید');
   }
+  else if(m.t==='chat'){showBubble('ot',String(m.m).slice(0,60));say('💬 '+otherName()+': '+String(m.m).slice(0,60))}
   else if(m.t==='ping'){say('📱 '+otherName()+': '+m.m);puff(P.x*TS+8,P.y*TS-6,'h',3)}
 });
 
@@ -881,7 +894,7 @@ function say(m){$('hMsg').textContent=m}
 function hud(){
   tick();
   const sl=S.sleepUntil>Date.now();
-  $('hDay').textContent=sl?'💤 '+fmt(S.sleepUntil-Date.now())+' تا بیدار شدن':'⚡ '+fa(S.energy)+' از '+fa(MAXE);
+  $('hDay').textContent=sl?'💤 '+fmt(S.sleepUntil-Date.now())+' · +'+fa(sleptGain())+'⚡':'⚡ '+fa(S.energy)+' از '+fa(MAXE);
   $('hCoin').textContent='🪙 '+fa(S.coins);
   $('hEn').style.width=(sl?(1-(S.sleepUntil-Date.now())/SLEEP)*100:S.energy/MAXE*100)+'%';
   $('hInv').innerHTML=Object.keys(CROPS).filter(k=>S.unlocked[k]||S.inv[k]).map(k=>`<span>${CROPS[k].e} ${fa(S.inv[k])}</span>`).join('');
@@ -902,7 +915,7 @@ function toolInfo(t){
 function renderTools(){
   const l=toolList();if(!l.includes(tool))tool='hoe';
   const c=toolInfo(tool);
-  $('tools').innerHTML=`<button class="tool bag" data-bag="1" aria-label="کوله‌پشتی">🎒 کوله‌پشتی<small>در دست: ${c.ic} ${c.nm}${c.sub?' · '+c.sub:''}</small></button>`;
+  $('tools').innerHTML=`<button class="tool bag" data-bag="1" aria-label="کوله‌پشتی">🎒 کوله‌پشتی<small>در دست: ${c.ic} ${c.nm}${c.sub?' · '+c.sub:''}</small></button><button class="tool" data-chat="1" aria-label="چت" style="min-width:64px">💬<small>چت</small></button>`;
   $('rotBtn').hidden=!(SIZE[tool]&&SIZE[tool][2]&&S.items[tool]>0);
   if(!$('bag').hidden)renderBag();
 }
@@ -915,7 +928,35 @@ function renderBag(){
 function openBag(){renderBag();$('bag').hidden=false}
 function closeBag(){$('bag').hidden=true}
 function setTool(t){tool=t;renderTools()}
-$('tools').addEventListener('click',e=>{if(e.target.closest('[data-bag]'))openBag()});
+$('tools').addEventListener('click',e=>{if(e.target.closest('[data-bag]'))openBag();else if(e.target.closest('[data-chat]'))openChat()});
+/* ----- little chat: text floats above the head for a few seconds ----- */
+const bub={me:null,ot:null};
+function showBubble(who,text){
+  if(bub[who]){bub[who].el.remove();clearTimeout(bub[who].t)}
+  const el=document.createElement('div');el.className='bub';el.textContent=text;$('bubbles').appendChild(el);
+  bub[who]={el,t:setTimeout(()=>{el.remove();bub[who]=null},Math.min(9000,3500+text.length*80))};
+}
+function placeBubble(who,e,ok){
+  const b=bub[who];if(!b)return;
+  if(!ok){b.el.style.display='none';return}
+  const st=$('bubbles').getBoundingClientRect(),cr=cv.getBoundingClientRect(),k=cr.width/cv.width;
+  const wx=(e.px+(e.x-e.px)*e.anim)*TS+8-Math.round(cam.x),wy=(e.py+(e.y-e.py)*e.anim)*TS-9-Math.round(cam.y);
+  b.el.style.display='';b.el.style.left=(cr.left-st.left+wx*k)+'px';b.el.style.top=(cr.top-st.top+wy*k)+'px';
+}
+function updateBubbles(){
+  placeBubble('me',P,S.sleepUntil<=Date.now());
+  placeBubble('ot',O,oVisible());
+}
+function openChat(){$('chatBar').hidden=false;$('chatIn').value='';setTimeout(()=>$('chatIn').focus(),30)}
+function closeChat(){$('chatBar').hidden=true;$('chatIn').blur()}
+function sendChat(){
+  const m=$('chatIn').value.trim().slice(0,60);closeChat();if(!m)return;
+  showBubble('me',m);
+  if(!Net.send({t:'chat',m}))say('پیام رفت ولی ارتباط قطعه، شاید نانا/عشقت ندیده 📵');
+}
+$('chatSend').addEventListener('click',sendChat);
+$('chatIn').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendChat()}else if(e.key==='Escape')closeChat()});
+$('chatBar').addEventListener('pointerdown',e=>e.stopPropagation());
 $('bagList').addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(b){setTool(b.dataset.t);closeBag()}});
 $('bag').addEventListener('click',e=>{if(e.target===$('bag'))closeBag()});
 $('bagClose').addEventListener('click',closeBag);
@@ -930,9 +971,17 @@ function enterHouse(){
   say(S.energy<=0?'انرژی‌ت صفره. برو سمت تخت و بخواب 🛏️':'توی خونه‌ای. تخت بالا سمت چپه 🛏️');
 }
 function exitHouse(){scene='out';P.x=P.px=6;P.y=P.py=7;P.anim=1;P.dir='d';P.sit=0;snapCam();savePos();sendPos(true);say('')}
+const sleptGain=()=>Math.floor(MAXE*Math.max(0,SLEEP-(S.sleepUntil-Date.now()))/SLEEP);
+function wakeUp(){
+  const g=sleptGain();
+  if(g<1)return say(`تازه خوابیدی 😴 هر ${fa(Math.round(SLEEP/MAXE/6e4))} دقیقه خواب یه انرژی می‌ده. اگه صبر کنی بیشتر پر می‌شه`);
+  S.sleepUntil=0;S.energy=Math.min(MAXE,S.energy+g);
+  savePos();storeP();sendPl();hud();
+  say(`بیدار شدی ☀️ ${fa(g)} انرژی گرفتی`);
+}
 function goSleep(){
   S.sleepUntil=Date.now()+SLEEP;P.sit=0;savePos();sendPl();hud();
-  say(`خوابیدی 😴 ${fmt(SLEEP)} دیگه بیدار می‌شی و انرژی‌ت پر می‌شه`);
+  say(`خوابیدی 😴 هر موقع خواستی با دکمه بیدار شو؛ هر ${fa(Math.round(SLEEP/MAXE/6e4))} دقیقه خواب = یه انرژی. ${fmt(SLEEP)} بخوابی کامل پر می‌شه`);
 }
 function puff(x,y,k,n){for(let i=0;i<n;i++)hearts.push({x:x+(Math.random()*10-5),y,t:-i*140,k,sc:scene})}
 function kissFx(x,y){puff(x,y,'h',4);puff(x,y-2,'k',2)}
@@ -964,7 +1013,7 @@ function farmAct(x,y){
       else{if(!spend(1))return;c.wa=Date.now();c.b=(c.b||0)+4*HR;say(`آب دادی 💧 چهار ساعت زودتر می‌رسه (${fmt(Math.max(0,left-4*HR))} مونده)`)}
     }else say(`${cr.e} ${cr.n}: ${fmt(left)} تا رسیدن. روزی یه بار آب بدی زودتر می‌رسه 💧`);
   }else if(tool==='hoe'){
-    if(c&&c.t)say('این‌جا قبلاً شخم خورده');
+    if(c&&c.t)say('این‌جا قبلاً شخم خورده. برای صاف کردنش دکمه‌ی «کار کن» رو نگه دار ⛏️');
     else{if(!spend(1))return;S.soil[k]={t:1};say('شخم زدی ⛏️')}
   }else if(tool==='water'){
     say(c&&c.t?'اول یه بذر بکار، بعد آب بده':'اول باید با کلنگ شخمش بزنی');
@@ -1066,14 +1115,14 @@ function actOut(fx,fy){
 }
 function act(){
   if(!$('shop').hidden||!$('bag').hidden)return;
-  if(S.sleepUntil>Date.now())return say(`خوابیده‌ای 😴 ${fmt(S.sleepUntil-Date.now())} تا بیدار شدن`);
+  if(S.sleepUntil>Date.now())return wakeUp();
   const [fx,fy]=faceTile();
   if(otherAt(fx,fy))return kiss();
   if(scene==='in')return actIn(fx,fy);
   actOut(fx,fy);
 }
 function actLabel(){
-  if(S.sleepUntil>Date.now())return 'خواب 😴';
+  if(S.sleepUntil>Date.now())return 'بیدار شو ☀️';
   const [fx,fy]=faceTile();
   if(otherAt(fx,fy))return 'بوس 💋';
   const it=itemAtTile(fx,fy);
@@ -1081,7 +1130,19 @@ function actLabel(){
   if(it&&ITEM[it]){if(tool==='pick')return 'جمع کن';if(ITEM[it].sit)return 'بشین';if(ITEM[it].use)return 'استفاده'}
   return 'کار کن';
 }
-$('actBtn').addEventListener('click',act);
+let holdT=null,holdFired=false;
+function flatten(){
+  if(scene!=='out'||tool!=='hoe'||S.sleepUntil>Date.now())return false;
+  const [fx,fy]=faceTile(),k=fx+','+fy,c=S.soil[k];
+  if(!c||!c.t||tileAt(fx,fy)!=='f')return false;
+  if(c.c){say('این‌جا چیزی کاشته شده، نمی‌شه صافش کرد 🌱');return true}
+  if(!spend(1))return true;
+  delete S.soil[k];say('زمین رو صاف کردی 🌿');try{navigator.vibrate&&navigator.vibrate(25)}catch(_){}
+  hud();store();return true;
+}
+$('actBtn').addEventListener('pointerdown',()=>{holdFired=false;clearTimeout(holdT);holdT=setTimeout(()=>{if(flatten())holdFired=true},650)});
+['pointerup','pointerleave','pointercancel'].forEach(ev=>$('actBtn').addEventListener(ev,()=>clearTimeout(holdT)));
+$('actBtn').addEventListener('click',()=>{if(holdFired){holdFired=false;return}act()});
 
 /* ----- shop ----- */
 let shopTab='seeds';
@@ -1104,7 +1165,7 @@ function renderShop(){
     const cl=shopTab==='decor'?DECOR:HDECOR;
     h=`<div class="stamp" style="margin:0 0 8px">${shopTab==='decor'?'این‌ها رو بیرون، روی چمن بذار':'این‌ها رو توی خونه بذار'} · با «جمع‌کن» برشون دار</div>`
      +Object.keys(cl).map(k=>{const d=cl[k];
-      return row(d.ic,d.n,(d.sit?'می‌شه روش نشست · ':d.use?'قابل استفاده · ':'')+'داری: '+fa(S.items[k]),`<button class="btn sm" data-buy="decor:${k}">${fa(d.price)} 🪙</button>`)}).join('');
+      return row(d.ic,d.n,(SIZE[k]&&SIZE[k][2]?'با 🔄 می‌چرخه · ':'')+(SIZE[k]&&SIZE[k][0]*SIZE[k][1]>1?fa(SIZE[k][0]*SIZE[k][1])+' خونه · ':'')+(d.sit?'می‌شه روش نشست · ':d.use?'قابل استفاده · ':'')+'داری: '+fa(S.items[k]),`<button class="btn sm" data-buy="decor:${k}">${fa(d.price)} 🪙</button>`)}).join('');
   }else if(shopTab==='look'){
     h=Object.keys(LOOKS).map(k=>{const l=LOOKS[k],own=S.own[k];
       return row(l.ic,l.n,own?(S.look[k]?'پوشیده‌ای':'داری'):'مال خودته، هر کس برای خودش می‌خره',own?`<button class="btn sm ghost" data-buy="wear:${k}">${S.look[k]?'درآر':'بپوش'}</button>`:`<button class="btn sm" data-buy="look:${k}">${fa(l.price)} 🪙</button>`)}).join('');
@@ -1182,7 +1243,7 @@ function update(dt,now){
     if(Math.random()<0.55){
       const dd=['u','d','l','r'][Math.floor(Math.random()*4)],v=VEC[dd];
       const nx=cat.x+v[0],ny=cat.y+v[1],ch=mapAt(nx,ny);
-      const dc=S.decor[nx+','+ny];
+      const dc=typeAt(S.decor,nx,ny);
       const free=!'THDSWBQ'.includes(ch)&&!(dc&&DECOR[dc]&&DECOR[dc].block)&&!(scene==='out'&&P.x===nx&&P.y===ny)&&!(scene==='out'&&P.px===nx&&P.py===ny&&P.anim<1)&&!(scene==='out'&&otherAt(nx,ny));
       if(free){cat.px=cat.x;cat.py=cat.y;cat.x=nx;cat.y=ny;cat.anim=0;cat.dir=dd}
     }}
@@ -1295,6 +1356,7 @@ function tree(px,py,x,y,t){
 }
 
 function itemSprite(type,px,py,t,key){
+  if(type==='lantern'){R(px+7,py+1,2,3,'#4a4f66');R(px+5,py+3,6,1,'#4a4f66');R(px+4,py+5,8,7,'#ff6b6b');R(px+5,py+4,6,1,'#ff6b6b');R(px+6,py+6,4,5,isNight()?'#fff2a8':'#ffd27a');R(px+5,py+12,6,1,'#4a4f66');R(px+7,py+13,2,3,'#ffe36e');R(px+4,py+5,1,7,'#d94f64');return}
   if(type==='fence'){R(px+1,py+6,14,2,'#fff7ee');R(px+1,py+11,14,2,'#fff7ee');[2,7,12].forEach(o=>{R(px+o,py+3,3,11,'#f1e2cf');R(px+o,py+3,3,1,'#fff')});R(px+1,py+14,14,1,'#00000014')}
   else if(type==='flower'){R(px+1,py+4,14,11,'#9a6a46');[[3,6,'#ff7fae'],[8,5,'#ffffff'],[12,7,'#8fd0ff'],[5,10,'#ffe36e'],[10,11,'#ff9fc3']].forEach(([a,b,c])=>{R(px+a,py+b+2,1,4,'#43a85a');R(px+a-1,py+b,3,3,c);R(px+a,py+b+1,1,1,'#ffe36e')})}
   else if(type==='bench'){R(px,py+4,16,4,'#d9a273');R(px,py+4,16,1,'#ecc093');R(px+1,py+9,14,3,'#c78c5e');R(px+1,py+12,2,3,'#8a5a44');R(px+13,py+12,2,3,'#8a5a44')}
@@ -1367,6 +1429,30 @@ function itemSprite(type,px,py,t,key){
 }
 /* the cushion in front of a seated character, so legs vanish into the seat */
 function bigSprite(type,r,px,py,t){
+  if(type==='fence'){
+    if(r%2===0)return itemSprite('fence',px,py,t,'');
+    R(px+6,py,2,16,'#fff7ee');R(px+9,py,2,16,'#fff7ee');[1,6,11].forEach(o=>{R(px+4,py+o,8,3,'#f1e2cf');R(px+4,py+o,8,1,'#fff')});R(px+12,py,1,16,'#00000014');return;
+  }
+  if(type==='fountain'){
+    const E=(cx,cy,rx,ry,c)=>{ctx.fillStyle=c;ctx.beginPath();ctx.ellipse(px+cx,py+cy,rx,ry,0,0,7);ctx.fill()};
+    const f=Math.floor(t/180)%3;
+    E(16,21,15.5,11,'#c9d6e8');E(16,22,14,9.5,'#a9bcd6');E(16,22,12.5,8,'#8fd0ff');E(16+(f-1)*2,23,6,2.5,'#cdeeff');
+    R(px+14,py+8,4,13,'#c9d6e8');R(px+14,py+8,1,13,'#e6eef8');R(px+10,py+14,12,2,'#b8c8de');R(px+12,py+6,8,2,'#b8c8de');
+    R(px+15,py+1+f,2,5,'#cdeeff');R(px+9+f,py+10,1,4,'#cdeeff');R(px+22-f,py+10,1,4,'#cdeeff');return;
+  }
+  if(type==='fairy'){
+    const L=48,vt=r%2===1,cols=['#ff7fae','#ffe36e','#8fd0ff','#a9e3a0'];
+    const pt=(a,b)=>vt?[px+8+b-3,py+a]:[px+a,py+b];
+    const sag=a=>Math.round(Math.sin(a/(L-1)*Math.PI)*4);
+    if(vt){R(px+7,py+2,2,13,'#8a5a44');R(px+7,py+L-14,2,13,'#8a5a44')}else{R(px,py+2,2,14,'#8a5a44');R(px+L-2,py+2,2,14,'#8a5a44')}
+    for(let a=0;a<L;a++){const[x,y]=pt(a,3+sag(a));R(x,y,1,1,'#4a4f66')}
+    for(let i=0;i<6;i++){
+      const a=4+i*8,on=(Math.floor(t/350)+i)%3!==0,[x,y]=pt(a,5+sag(a));
+      R(x,y,2,3,on?cols[(i+Math.floor(t/1200))%4]:'#6a6a80');
+      if(on)R(x,y,1,1,'#ffffffaa');
+    }
+    return;
+  }
   if(type==='sofa'){
     const D='#ff7fae',L='#ff9fc3',Hh='#ffc2d8',F='#8a5a44';
     if(r===0){R(px,py+2,32,6,D);R(px,py+2,32,1,Hh);R(px+2,py+8,28,7,L);R(px+2,py+8,28,1,Hh);R(px,py+5,3,10,D);R(px+29,py+5,3,10,D);R(px+16,py+8,1,7,D);R(px+1,py+15,2,1,F);R(px+29,py+15,2,1,F)}
@@ -1396,7 +1482,12 @@ function faceBox(fx,fy,t){
 }
 function seatFront(x,y){
   const it=seatKind(x,y);if(!it)return;
-  const an=anchorOf(itemMap(),x,y);if(an&&an.v.includes('@'))return;
+  const an=anchorOf(itemMap(),x,y);
+  if(an&&an.v.includes('@')){
+    if(base(an.v)==='sofa'){const r=rotOf(an.v),px=x*TS,py=y*TS;
+      if(r===2){R(px,py+9,16,6,'#ff7fae');R(px,py+9,16,1,'#ffc2d8');R(px,py+14,16,1,'#c44c78')}
+      else if(r===0){R(px+1,py+13,14,3,'#ff9fc3');R(px+1,py+13,14,1,'#ffc2d8')}}
+    return}
   const c=ITEM[it].sit[0];if(!c)return;
   const px=x*TS,py=y*TS;
   R(px+1,py+10,14,7,c);R(px+1,py+10,14,1,'#ffffff66');
@@ -1526,7 +1617,10 @@ function drawOutside(t){
   const ents=[];
   for(let y=y0;y<=Math.min(H-1,y1+2);y++)for(let x=x0;x<=x1;x++){
     if(MAP[y][x]==='T')ents.push([y*TS,()=>tree(x*TS,y*TS,x,y,t)]);
-    const d=typeAt(S.decor,x,y);if(d&&S.decor[x+','+y][0]!=='~')ents.push([y*TS+(FLAT[d]?-4:0),()=>itemSprite(d,x*TS,y*TS,t,x+','+y)]);
+    const v=S.decor[x+','+y];
+    if(v&&v[0]!=='~'){const d=base(v);
+      if(v.includes('@')&&SIZE[d]){const r=rotOf(v),h=dims(d,r)[1];ents.push([FLAT[d]?y*TS-4:(y+h-1)*TS,()=>bigSprite(d,r,x*TS,y*TS,t)])}
+      else ents.push([y*TS+(FLAT[d]?-4:0),()=>itemSprite(d,x*TS,y*TS,t,x+','+y)])}
   }
   const hop=cat.hop>0?-Math.round(Math.sin(cat.hop/350*Math.PI)*3):0;
   const ca=cat.anim,cx=(cat.px+(cat.x-cat.px)*ca)*TS,cy=(cat.py+(cat.y-cat.py)*ca)*TS;
@@ -1542,9 +1636,16 @@ function drawOutside(t){
     ctx.fillStyle=`rgba(40,60,130,${dark})`;ctx.fillRect(0,0,cv.width,cv.height);
     ctx.save();ctx.translate(-Math.round(cam.x),-Math.round(cam.y));
     ctx.globalCompositeOperation='lighter';
-    for(const k in S.decor){if(S.decor[k]!=='lamp'&&S.decor[k]!=='campfire')continue;const [x,y]=k.split(',').map(Number);
-      const g=ctx.createRadialGradient(x*TS+8,y*TS+4,2,x*TS+8,y*TS+4,36);g.addColorStop(0,'rgba(255,220,120,.55)');g.addColorStop(1,'rgba(255,220,120,0)');
-      ctx.fillStyle=g;ctx.fillRect(x*TS-30,y*TS-34,76,76)}
+    for(const k in S.decor){
+      const v=S.decor[k];if(v[0]==='~')continue;
+      const ty=base(v);if(ty!=='lamp'&&ty!=='campfire'&&ty!=='lantern'&&ty!=='fairy')continue;
+      const[x0,y0]=k.split(',').map(Number),cells=[];
+      if(ty==='fairy'){const[w,h]=dims('fairy',rotOf(v));for(let j=0;j<h;j++)for(let i=0;i<w;i++)cells.push([x0+i,y0+j])}else cells.push([x0,y0]);
+      cells.forEach(([x,y])=>{
+        const fy=ty==='fairy',rr=fy?26:36,g=ctx.createRadialGradient(x*TS+8,y*TS+5,2,x*TS+8,y*TS+5,rr);
+        g.addColorStop(0,fy?'rgba(255,170,215,.42)':'rgba(255,220,120,.55)');g.addColorStop(1,fy?'rgba(255,170,215,0)':'rgba(255,220,120,0)');
+        ctx.fillStyle=g;ctx.fillRect(x*TS-rr,y*TS-rr,rr*2+16,rr*2+16)})
+    }
     ctx.restore();
   }
 }
@@ -1611,11 +1712,11 @@ function draw(t){scene==='in'?drawRoom(t):drawOutside(t)}
 let last=performance.now();
 function frame(now){
   const dt=Math.min(50,now-last);last=now;
-  if(!$('farm').hidden){update(dt,now);draw(now)}
+  if(!$('farm').hidden){update(dt,now);draw(now);updateBubbles()}
   requestAnimationFrame(frame);
 }
 function guide(){
-  say(S.sleepUntil>Date.now()?`خوابیده‌ای 😴 ${fmt(S.sleepUntil-Date.now())} تا بیدار شدن`:'اول با کلنگ زمین رو شخم بزن، بعد بذر گندم بکار. فروشگاه بالا سمت راسته 🛍️');
+  say(S.sleepUntil>Date.now()?`خوابیده‌ای 😴 ${fmt(S.sleepUntil-Date.now())} تا بیدار شدن. با دکمه می‌تونی زودتر بیدار شی`:'اول با کلنگ زمین رو شخم بزن، بعد بذر گندم بکار. فروشگاه بالا سمت راسته 🛍️');
 }
 renderTools();hud();setInterval(hud,30000);
 window.farmCurrent=()=>S;
