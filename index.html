@@ -778,7 +778,7 @@ function norm(o){
   const items={},own={};
   Object.keys(ITEM).forEach(k=>items[k]=0);Object.keys(LOOKS).forEach(k=>own[k]=0);
   return{
-    v:3,rev:o.rev||0,coins:o.coins??10,energy:o.energy??MAXE,sleepUntil:o.sleepUntil||0,
+    v:3,rev:o.rev||0,sr:(o.sr&&typeof o.sr==='object')?Object.assign({},o.sr):{},coins:o.coins??10,energy:o.energy??MAXE,sleepUntil:o.sleepUntil||0,
     inv:Object.assign({wheat:0,carrot:0,straw:0,tulip:0},o.inv||{}),
     soil:o.soil||{},pos:o.pos||null,
     unlocked:Object.assign({wheat:1},o.unlocked||{}),
@@ -787,6 +787,9 @@ function norm(o){
     own:Object.assign(own,o.own||{}),look:o.look||{},eatAt:o.eatAt||0,ts:o.ts||0};
 }
 let S=norm({}),inited='',lastBy='';
+const snap={};
+const snapAll=()=>SHARED.forEach(k=>{snap[k]=JSON.stringify(S[k])});
+function bump(){SHARED.forEach(k=>{const j=JSON.stringify(S[k]);if(snap[k]===undefined)snap[k]=j;else if(j!==snap[k]){S.sr[k]=(S.sr[k]||0)+1;snap[k]=j}})}
 const otherRole=()=>ROLE==='her'?'him':'her';
 const otherName=()=>ROLE==='her'?'عشقت':'نانا';
 const gSelf=()=>ROLE==='him'?'him':'her';
@@ -796,13 +799,13 @@ function initFor(role){
   inited=role;
   const w=load('farm',null)||{};let p=load('pl_'+role,null);
   if(!p)p=role==='her'?pick(w,PERSONAL):{}; /* old single-player saves belonged to Nana */
-  S=norm(Object.assign(pick(w,SHARED),{rev:w.rev||0},p));
+  S=norm(Object.assign(pick(w,SHARED),{rev:w.rev||0,sr:w.sr||{}},p));snapAll();
 }
-const sharedOf=()=>{const r=pick(S,SHARED);r.v=3;r.rev=S.rev;return r};
+const sharedOf=()=>{const r=pick(S,SHARED);r.v=3;r.rev=S.rev;r.sr=Object.assign({},S.sr);return r};
 const personalOf=()=>pick(S,PERSONAL);
 const clone=o=>JSON.parse(JSON.stringify(o));
 function store(){ /* shared world changed (and maybe personal too) */
-  S.rev=Math.max(S.rev+1,1);S.ts=Date.now();lastBy=ROLE;
+  bump();S.rev=Math.max(S.rev+1,1);S.ts=Date.now();lastBy=ROLE;
   const w=clone(sharedOf());w.by=ROLE;
   /* the world is saved twice: under 'farm' and inside my own personal key, so it survives even if one of them is not writable */
   const pl=clone(personalOf());pl.w=w;
@@ -810,13 +813,24 @@ function store(){ /* shared world changed (and maybe personal too) */
   Net.send({t:'world',rev:S.rev,w});
 }
 function storeP(){S.ts=Date.now();const pl=clone(personalOf());const w=clone(sharedOf());w.by=lastBy||ROLE;pl.w=w;persist('pl_'+ROLE,pl)}
-function applyWorld(w){
-  if(!w)return;
-  const n=norm(w);
-  SHARED.forEach(k=>{S[k]=n[k]});
-  S.rev=w.rev||1;lastBy=w.by||'';
+function mergeWorld(w){
+  if(!w)return false;
+  const n=norm(w);let took=false;
+  if(!w.sr){
+    if(!Object.keys(S.sr).length&&(w.rev||0)>S.rev){SHARED.forEach(k=>{S[k]=n[k]});took=true}
+  }else{
+    SHARED.forEach(k=>{
+      const rs=w.sr[k]||0,ls=S.sr[k]||0;
+      if(rs>ls||(rs===ls&&w.by==='her'&&ROLE==='him'&&JSON.stringify(n[k])!==JSON.stringify(S[k]))){S[k]=n[k];S.sr[k]=rs;took=true}
+    });
+  }
+  if(!took)return false;
+  snapAll();
+  S.rev=Math.max(S.rev,w.rev||0);lastBy=w.by||lastBy;
+  if(w.sr&&SHARED.some(k=>(S.sr[k]||0)>(w.sr[k]||0)))setTimeout(()=>store(),400);
   save('farm',clone(sharedOf()));
   renderTools();hud();if(!$('shop').hidden)renderShop();
+  return true;
 }
 const newer=w=>w&&((w.rev||0)>S.rev||((w.rev||0)===S.rev&&w.by==='her'&&lastBy==='him')||(!w.rev&&S.rev===0));
 
@@ -897,7 +911,7 @@ Net.on(m=>{
     O.dir=m.d;O.scene=m.s;O.sit=m.q?1:0;O.has=1;O.seen=Date.now();
   }
   else if(m.t==='pl'){O.look=m.lk||{};O.sleepUntil=Math.min(m.sl||0,Date.now()+SLEEP);O.seen=Date.now()}
-  else if(m.t==='world'){if(newer({rev:m.rev,by:m.w&&m.w.by}))applyWorld(Object.assign({},m.w,{rev:m.rev}))}
+  else if(m.t==='world'){mergeWorld(Object.assign({},m.w,{rev:m.rev}))}
   else if(m.t==='kiss'){
     const same=O.has&&O.scene===scene;
     const mx=(P.x+(same?O.x:P.x))/2*TS+4,my=(P.y+(same?O.y:P.y))/2*TS-6;
@@ -1065,12 +1079,12 @@ function pickUp(fx,fy){
   S.items[it]++;
   say(`${ITEM[it].n} رو برداشتی`);renderTools();store();
 }
-function useItem(it,k){
+function useItem(it,k,fx,fy){
   const u=ITEM[it].use,on=S.on;
   if(u==='kfridge')return openKit('fridge');
   if(u==='kovn')return ovenAct();
   if(u==='ksink')return sinkAct();
-  if(u==='ktable')return tableAct();
+  if(u==='ktable')return tableAct(k,fx,fy);
   if(u==='tv'||u==='radio'){
     const now=!on[k];if(now)on[k]=1;else delete on[k];
     say(u==='tv'?(now?'تلویزیون روشن شد 📺':'تلویزیون خاموش شد'):(now?'رادیو روشن شد 📻🎶':'رادیو خاموش شد'));
@@ -1096,7 +1110,7 @@ function itemAct(it,k,fx,fy){
   const d=ITEM[it];
   if(tool==='pick'||(tool==='hoe'&&!d.sit&&!d.use))return pickUp(fx,fy);
   if(d.sit)return P.anim>=1?sitOn(fx,fy):undefined;
-  if(d.use)return useItem(it,k);
+  if(d.use)return useItem(it,k,fx,fy);
   say(`این‌جا ${d.n} هست. با «جمع‌کن» برش دار.`);
 }
 function place(fx,fy,ch){
@@ -1173,21 +1187,30 @@ function ovenAct(){
   if(cd>0)return say(`الان سیر هستید 😋 ${fa(Math.ceil(cd/60000))} دقیقه دیگه می‌تونید غذای جدید بپزید`);
   openKit('oven');
 }
-function tableAct(){
+function tableAct(key,fx,fy){
   const k=S.kit,tb=k.table;
+  let slot=-1;
+  if(key&&fx!==undefined){const[ax,ay]=key.split(',').map(Number);slot=clamp(fy-ay,0,1)*2+clamp(fx-ax,0,1)}
   if(S.hold&&S.hold.t==='food'){
-    const free=[0,1,2,3].filter(i=>!tb[i]);
-    if(free.length<2)return say('میز جا نداره. اول غذاها رو بخورید و بشقاب‌ها رو جمع کنید 😋');
-    const f={n:S.hold.n,ic:S.hold.ic,e:S.hold.e};tb[free[0]]=f;tb[free[1]]=Object.assign({},f);S.hold=null;store();
+    let a,b;
+    if(slot>=0&&!tb[slot]&&!tb[slot^1]){a=slot;b=slot^1}
+    else{const fr=[0,1,2,3].filter(i=>!tb[i]);if(fr.length<2)return say('میز جا نداره. اول غذاها رو بخورید و بشقاب‌ها رو جمع کنید 😋');a=fr[0];b=fr[1]}
+    const f={n:S.hold.n,ic:S.hold.ic,e:S.hold.e};tb[a]=f;tb[b]=Object.assign({},f);S.hold=null;store();
     return say('بشقاب‌ها رو رو میز چیدی 🍽️ حالا بخورید!');
   }
-  if(S.hold)return say('دستت پره. بشقاب‌های کثیف رو ببر تو سینک 🧼');
-  const fi=tb.findIndex(x=>x&&!x.d);
-  if(fi>=0){
-    if(Date.now()-S.eatAt<20000)return say('هنوز سیری 😋 یه کم دیگه صبر کن');
-    const f=tb[fi];tb[fi]={d:1};S.eatAt=Date.now();S.energy=Math.min(MAXE,S.energy+f.e);hud();store();
-    return say(`${f.ic} «${f.n}» رو خوردی 😋 ${fa(f.e)} انرژی گرفتی. بشقاب کثیفش رو میزه، جمعش کن`);
+  if(S.hold&&S.hold.t==='dirty'){
+    if(slot>=0&&tb[slot]&&tb[slot].d){tb[slot]=null;S.hold.n++;store();return say(`${fa(S.hold.n)} تا بشقاب کثیف تو دستته. ببر تو سینک بشورشون 🧼`)}
+    return say('دستت پره. بشقاب‌های کثیف رو ببر تو سینک 🧼');
   }
+  if(S.hold)return say('دستت پره 🖐️');
+  const cur=slot>=0?tb[slot]:null;
+  if(cur&&!cur.d){
+    if(Date.now()-S.eatAt<20000)return say('هنوز سیری 😋 یه کم دیگه صبر کن');
+    tb[slot]={d:1};S.eatAt=Date.now();S.energy=Math.min(MAXE,S.energy+cur.e);hud();store();
+    return say(`${cur.ic} «${cur.n}» رو خوردی 😋 ${fa(cur.e)} انرژی گرفتی. بشقاب کثیفش رو میزه، جمعش کن`);
+  }
+  if(cur&&cur.d){tb[slot]=null;S.hold={t:'dirty',n:1,ic:'🍽️'};store();return say('یه بشقاب کثیف برداشتی. ببرش تو سینک بشورش 🧼')}
+  if(tb.some(x=>x&&!x.d))return say('جلوت بشقابی نیست. غذا اون طرف میزه 🍽️');
   const n=tb.filter(x=>x&&x.d).length;
   if(n){for(let i=0;i<4;i++)if(tb[i]&&tb[i].d)tb[i]=null;S.hold={t:'dirty',n,ic:'🍽️'};store();return say(`${fa(n)} تا بشقاب کثیف برداشتی. ببر تو سینک بشورشون 🧼`)}
   say('میز خالیه. از یخچال مواد بردار، تو فر بپز و بیارش اینجا 🍳');
@@ -1867,15 +1890,14 @@ function drawTable(X,Y,t){
 }
 function drawBed(t,herSl,himSl,herLook,himLook){
   const both=herSl&&himSl;
-  R(TS,TS-2,48,6,'#a56f4f');R(TS,TS+2,48,31,'#c98f6b');R(TS,TS+32,48,2,'#00000018');
-  R(TS+2,TS+5,44,26,'#ffffff');
-  R(TS+4,TS+7,16,7,'#e1f1ff');R(TS+28,TS+7,16,7,'#ffe9f1');
+  R(TS,TS-3,48,8,'#8a5a44');R(TS,TS-3,48,2,'#a56f4f');R(TS,TS+4,48,31,'#a56f4f');
+  R(TS+1,TS+3,46,31,'#fffaf3');
+  R(TS+5,TS+5,17,8,'#ffffff');R(TS+5,TS+12,17,1,'#e6dfd3');R(TS+26,TS+5,17,8,'#ffffff');R(TS+26,TS+12,17,1,'#e6dfd3');
   if(himSl)sleeperHead(both?TS+9:TS+3,false,himLook);
   if(herSl)sleeperHead(both?TS+21:TS+27,true,herLook);
-  R(TS+2,TS+16,23,15,'#7cc4f5');R(TS+2,TS+16,23,2,'#a9dcfa');R(TS+2,TS+23,23,2,'#a9dcfa');
-  R(TS+25,TS+16,21,15,'#ff9cbc');R(TS+25,TS+16,21,2,'#ffb8d0');R(TS+25,TS+23,21,2,'#ffb8d0');
-  R(TS+24,TS+16,2,15,'#ffffff');
-  if(both){R(TS+17,TS+14,16,4,'#ffd9b8');R(TS+17,TS+14,16,1,'#ffe9d2');R(TS+16,TS+15,2,3,'#7cc4f5');R(TS+32,TS+15,2,3,'#ff9cbc')}
+  R(TS+1,TS+16,46,17,'#9d8cf0');R(TS+1,TS+16,46,3,'#c3b8ff');R(TS+1,TS+23,46,1,'#b3a6ff');R(TS+1,TS+30,46,3,'#7f6fd8');
+  R(TS,TS-3,2,38,'#8a5a44');R(TS+46,TS-3,2,38,'#8a5a44');
+  if(both){R(TS+17,TS+13,16,4,'#ffd9b8');R(TS+17,TS+13,16,1,'#ffe9d2')}
   ctx.fillStyle='#ffffff';ctx.font='bold 9px sans-serif';
   if(both){for(let i=0;i<3;i++){const ph=((t/1000)+i/3)%1;heart(TS+17+i*5,TS+8-Math.round(ph*20),1-ph)}}
   else [[himSl,TS+2],[herSl,TS+26]].forEach(([on,ox])=>{if(!on)return;
@@ -1978,9 +2000,9 @@ window.farmSleepText=()=>O.has&&O.sleepUntil>Date.now()?fmt(O.sleepUntil-Date.no
 /* called after every server pull: merge the shared world, my own personal data (first time only) and the other player's stored state */
 window.farmSync=(d,first)=>{
   initFor(ROLE);
-  let best=null;
-  [d.farm,d.pl_him&&d.pl_him.w,d.pl_her&&d.pl_her.w].forEach(c=>{if(c&&(!best||(c.rev||0)>(best.rev||0)))best=c});
-  if(best&&newer(best))applyWorld(best);
+  const cands=[d.farm,d.pl_him&&d.pl_him.w,d.pl_her&&d.pl_her.w].filter(Boolean).sort((a,b)=>(a.rev||0)-(b.rev||0));
+  const best=cands.length?cands[cands.length-1]:null;
+  cands.forEach(c=>mergeWorld(c));
   ensureKitchen();
   const mine=d['pl_'+ROLE]||(ROLE==='her'&&d.farm&&d.farm.v===2?d.farm:null);
   if(first&&mine){const np=norm(mine);if((np.ts||0)>(S.ts||0))PERSONAL.forEach(k=>{S[k]=np[k]})}
