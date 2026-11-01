@@ -118,7 +118,10 @@ body.gaming .topstat{display:none!important}
 body.gaming .chatbar{background:#14141c}
 .chatbar input{flex:1;min-width:0;border-radius:12px;border:1.5px solid var(--line);background:var(--item);color:var(--text);font:inherit;font-size:15px;padding:9px 12px;direction:rtl}
 .chatbar button{border:0;border-radius:12px;padding:0 16px;font:inherit;font-weight:700;background:linear-gradient(135deg,var(--pink),var(--sky));color:var(--btn-text);cursor:pointer}
-.tool.bag{flex:1 1 auto;font-size:14px;padding:8px 10px;min-width:0}
+.stage .tools{position:absolute;top:4px;right:4px;display:flex;flex-direction:row-reverse;gap:6px;z-index:5;overflow:visible;padding:0;margin:0}
+.stage .tool{width:34px;height:34px;min-width:0;padding:0;font-size:18px;border-radius:12px;position:relative;background:#ffffffd0;border:1px solid #0002;color:#222;line-height:1}
+.stage .tool i{position:absolute;right:-5px;bottom:-5px;font-style:normal;font-size:13px;background:#fff;border-radius:8px;padding:1px 2px;line-height:1.1;box-shadow:0 1px 3px #0004}
+.tool.bag{font-size:14px;min-width:0}
 .bag-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .bag-grid .tool{min-width:0;padding:10px 4px;font-size:13px}
 .bag-h{grid-column:1/-1;font-size:12px;color:var(--muted);margin-top:4px}
@@ -268,6 +271,12 @@ body.gaming .stage canvas,body.gaming #gc{border-radius:14px}
       <button class="act" id="actBtn">کار کن</button>
     </div>
     <div class="chatbar" id="chatBar" hidden><input id="chatIn" maxlength="60" placeholder="یه پیام کوتاه بنویس..." autocomplete="off"><button id="chatSend" type="button">ارسال</button></div>
+    <div class="shop" id="kit" hidden>
+      <div class="shop-card">
+        <div class="shop-head"><b id="kitTitle"></b><button class="x" id="kitClose" aria-label="بستن">✕</button></div>
+        <div id="kitBody"></div>
+      </div>
+    </div>
     <div class="shop" id="bag" hidden>
       <div class="shop-card">
         <div class="shop-head"><b>🎒 کوله‌پشتی</b><span id="bagHand"></span><button class="x" id="bagClose" aria-label="بستن">✕</button></div>
@@ -368,7 +377,8 @@ function sendKey(key,ka){
   const val=unsent[key];
   return rpc('set_kv',{p_pin:PIN,p_key:key,p_value:val},ka)
     .then(()=>{if(unsent[key]===val){delete unsent[key];markUnsent()}setNet('')})
-    .catch(()=>setNet('ذخیره روی سرور انجام نشد. دوباره تلاش می‌کنم، برنامه رو نبند.'));
+    .catch(e=>{const m='ذخیره روی سرور نشد ('+String((e&&e.message)||e).slice(0,100)+'). دوباره تلاش می‌کنم، برنامه رو نبند.';setNet(m);
+      if(window.farmSay&&Date.now()-(window.__errAt||0)>20000){window.__errAt=Date.now();window.farmSay('⚠️ '+m)}});
 }
 function persist(key,val){
   save(key,val);unsent[key]=val;markUnsent();
@@ -390,7 +400,7 @@ const Net=(()=>{
   function drop(){
     clearInterval(hbT);joined=false;
     if(ws){const w=ws;ws=null;try{w.onclose=w.onerror=w.onmessage=w.onopen=null;w.close()}catch(e){}}
-    if(!rcT)rcT=setTimeout(()=>{rcT=null;connect()},2500);
+    if(!rcT)rcT=setTimeout(()=>{rcT=null;connect()},1200);
   }
   function connect(){
     if(!ONLINE||ws)return;
@@ -398,11 +408,11 @@ const Net=(()=>{
     catch(e){ws=null;drop();return}
     ws.onopen=()=>{
       raw({topic,event:'phx_join',payload:{config:{broadcast:{self:false,ack:false},presence:{key:''},private:false},access_token:CFG.anon},ref:String(++ref),join_ref:'1'});
-      clearInterval(hbT);const beat=()=>{const r=String(++ref);hbAt[r]=performance.now();raw({topic:'phoenix',event:'heartbeat',payload:{},ref:r})};beat();hbT=setInterval(beat,4000);
+      clearInterval(hbT);const beat=()=>{const r=String(++ref);hbAt[r]=performance.now();raw({topic:'phoenix',event:'heartbeat',payload:{},ref:r})};beat();hbT=setInterval(()=>{const nw=performance.now();for(const r in hbAt){if(nw-hbAt[r]>9000){for(const q in hbAt)delete hbAt[q];return drop()}}beat()},3000);
     };
     ws.onmessage=ev=>{
       let m;try{m=JSON.parse(ev.data)}catch(e){return}
-      if(m.event==='phx_reply'&&hbAt[m.ref]!==undefined){window.__ping=Math.round(performance.now()-hbAt[m.ref]);window.__pingAt=Date.now();delete hbAt[m.ref]}
+      if(m.event==='phx_reply'&&hbAt[m.ref]!==undefined){const pp=(window.__pp=window.__pp||[]);pp.push(Math.round(performance.now()-hbAt[m.ref]));if(pp.length>5)pp.shift();window.__ping=pp.slice().sort((a,b)=>a-b)[pp.length>>1];window.__pingAt=Date.now();delete hbAt[m.ref]}
       if(m.topic!==topic)return;
       if(m.event==='phx_reply'&&!joined&&m.payload&&m.payload.status==='ok'){joined=true;emit({t:'_up'})}
       else if(m.event==='broadcast'&&m.payload&&m.payload.payload)emit(m.payload.payload);
@@ -631,7 +641,7 @@ setInterval(()=>{
   const b=$('pingBadge');if(!b)return;
   if(!ROLE||!ONLINE||$('app').hidden){b.hidden=true;return}
   b.hidden=false;
-  const ok=window.__pingAt&&Date.now()-window.__pingAt<12000&&Net.live();
+  const ok=window.__pingAt&&Date.now()-window.__pingAt<14000&&Net.live();
   if(!ok){b.textContent='×';b.style.color='#ff6b6b';return}
   const p=window.__ping;b.textContent=p;b.style.color=p<120?'#7CFC9A':p<300?'#ffe36e':'#ff6b6b';
 },1000);
@@ -650,10 +660,10 @@ const CROPS={
 const DECOR={
   fence:{n:'نرده',ic:'🚧',price:3,block:true},
   flower:{n:'باغچه گل',ic:'🌸',price:6},
-  bench:{n:'نیمکت',ic:'🪑',price:18,block:true,sit:['#c78c5e',-1]},
+  bench:{n:'نیمکت دونفره',ic:'🪑',price:18,block:true,sit:['#c78c5e',-1]},
   lamp:{n:'چراغ',ic:'💡',price:22,block:true},
   swing:{n:'تاب',ic:'🎠',price:50,block:true,sit:['#e8b8cf',-1]},
-  picnic:{n:'زیرانداز پیک‌نیک',ic:'🧺',price:30,sit:['',0]},
+  picnic:{n:'میز پیک‌نیک (چهار خونه)',ic:'🧺',price:40,sit:['',0]},
   campfire:{n:'آتش',ic:'🔥',price:35,block:true,use:'fire'},
   fountain:{n:'آبنما (چهار خونه)',ic:'⛲',price:70,block:true,use:'fountain'},
   fairy:{n:'ریسه چراغ رنگی',ic:'🎇',price:45},
@@ -667,13 +677,13 @@ const HDECOR={
   phone:{n:'میز و موبایل',ic:'📱',price:35,block:true,use:'phone'},
   radio:{n:'رادیو',ic:'📻',price:30,block:true,use:'radio'},
   piano:{n:'پیانو',ic:'🎹',price:100,block:true,use:'piano'},
-  fridge:{n:'یخچال',ic:'🧊',price:55,block:true,use:'fridge'},
+  fridge:{n:'یخچال',ic:'🧊',price:55,block:true,use:'fridge',legacy:true},
   plant:{n:'گلدان',ic:'🪴',price:12,block:true},
   lamp2:{n:'آباژور',ic:'🕯️',price:28,block:true},
   rug:{n:'فرش گرد بزرگ',ic:'🟣',price:35}};
 const ITEM=Object.assign({},DECOR,HDECOR);
 /* size in tiles [w,h,rotatable]. A big item is stored as 'type@rotation' on its first tile and '~dx,dy' (offset back to it) on the others */
-const SIZE={sofa:[2,1,1],piano:[2,1,0],rug:[2,2,0],fountain:[2,2,0],fence:[1,1,1],fairy:[3,1,1]};
+const SIZE={sofa:[2,1,1],piano:[2,1,0],rug:[2,2,0],fountain:[2,2,0],fence:[1,1,1],fairy:[3,1,1],bench:[2,1,1],picnic:[2,2,0]};
 let rot=0;
 const base=v=>v?String(v).split('@')[0]:v;
 const rotOf=v=>{const i=String(v).indexOf('@');return i<0?0:(+String(v).slice(i+1)||0)};
@@ -736,11 +746,11 @@ const MAP=[];
 const mapAt=(x,y)=>(y<0||y>=H||x<0||x>=W)?'T':MAP[y][x];
 const ROOM=[
 "##############",
-"#BBBB.KK...Q.#",
-"#BBBB........#",
+"#BBB.KK.FSO.Q#",
+"#BBB.........#",
 "#............#",
 "#.....TT.....#",
-"#............#",
+"#.....TT.....#",
 "#............#",
 "#............#",
 "#............#",
@@ -753,9 +763,12 @@ const cv=$('gc'),ctx=cv.getContext('2d');
 cv.width=VW*TS;cv.height=VH*TS;
 
 /* ----- state: shared world (coins, soil, furniture...) + personal part (energy, sleep, position, clothes) ----- */
-const SHARED=['coins','inv','soil','unlocked','items','decor','hdecor','on'];
-const PERSONAL=['energy','sleepUntil','pos','look','own','eatAt','ts'];
+const SHARED=['coins','inv','soil','unlocked','items','decor','hdecor','on','kit'];
+const PERSONAL=['energy','sleepUntil','pos','look','own','eatAt','ts','hold','carry'];
 const pick=(o,ks)=>{const r={};ks.forEach(k=>{if(o&&o[k]!==undefined)r[k]=o[k]});return r};
+const KIT0=()=>({plates:4,dirty:0,oven:[],cookAt:0,dish:null,table:[]});
+function normKit(k){const d=KIT0();if(!k||typeof k!=='object')return d;
+  return{plates:Math.max(0,Math.min(12,k.plates??4)),dirty:Math.max(0,k.dirty|0),oven:Array.isArray(k.oven)?k.oven.slice(0,3):[],cookAt:+k.cookAt||0,dish:k.dish||null,table:Array.isArray(k.table)?k.table.slice(0,4):[]}}
 function norm(o){
   o=o||{};
   const items={},own={};
@@ -766,10 +779,10 @@ function norm(o){
     soil:o.soil||{},pos:o.pos||null,
     unlocked:Object.assign({wheat:1},o.unlocked||{}),
     items:Object.assign(items,o.items||{}),
-    decor:o.decor||{},hdecor:o.hdecor||{},on:o.on||{},
+    decor:o.decor||{},hdecor:o.hdecor||{},on:o.on||{},kit:normKit(o.kit),hold:o.hold||null,carry:Array.isArray(o.carry)?o.carry.slice(0,3):[],
     own:Object.assign(own,o.own||{}),look:o.look||{},eatAt:o.eatAt||0,ts:o.ts||0};
 }
-let S=norm({}),inited='';
+let S=norm({}),inited='',lastBy='';
 const otherRole=()=>ROLE==='her'?'him':'her';
 const otherName=()=>ROLE==='her'?'عشقت':'نانا';
 const gSelf=()=>ROLE==='him'?'him':'her';
@@ -785,21 +798,23 @@ const sharedOf=()=>{const r=pick(S,SHARED);r.v=3;r.rev=S.rev;return r};
 const personalOf=()=>pick(S,PERSONAL);
 const clone=o=>JSON.parse(JSON.stringify(o));
 function store(){ /* shared world changed (and maybe personal too) */
-  S.rev=Math.max(Date.now(),S.rev+1);S.ts=Date.now();
-  const w=clone(sharedOf());
-  persist('farm',w);persist('pl_'+ROLE,clone(personalOf()));
+  S.rev=Math.max(S.rev+1,1);S.ts=Date.now();lastBy=ROLE;
+  const w=clone(sharedOf());w.by=ROLE;
+  /* the world is saved twice: under 'farm' and inside my own personal key, so it survives even if one of them is not writable */
+  const pl=clone(personalOf());pl.w=w;
+  persist('farm',w);persist('pl_'+ROLE,pl);
   Net.send({t:'world',rev:S.rev,w});
 }
-function storeP(){S.ts=Date.now();persist('pl_'+ROLE,clone(personalOf()))}
+function storeP(){S.ts=Date.now();const pl=clone(personalOf());const w=clone(sharedOf());w.by=lastBy||ROLE;pl.w=w;persist('pl_'+ROLE,pl)}
 function applyWorld(w){
   if(!w)return;
   const n=norm(w);
   SHARED.forEach(k=>{S[k]=n[k]});
-  S.rev=w.rev||1;
+  S.rev=w.rev||1;lastBy=w.by||'';
   save('farm',clone(sharedOf()));
   renderTools();hud();if(!$('shop').hidden)renderShop();
 }
-const newer=w=>w&&((w.rev||0)>S.rev||(!w.rev&&S.rev===0));
+const newer=w=>w&&((w.rev||0)>S.rev||((w.rev||0)===S.rev&&w.by==='her'&&lastBy==='him')||(!w.rev&&S.rev===0));
 
 /* the other player */
 const O={x:0,y:0,px:0,py:0,anim:1,dir:'d',par:0,scene:'out',sit:0,has:0,seen:0,look:{},sleepUntil:0};
@@ -837,7 +852,7 @@ const blocked=(x,y)=>{
   const ch=tileAt(x,y);
   if(otherAt(x,y))return true;
   if(scene==='in'){
-    if('#BKT'.includes(ch)||ch==='Q')return true;
+    if('#BKTFSO'.includes(ch)||ch==='Q')return true;
     const it=typeAt(S.hdecor,x,y);return !!(it&&HDECOR[it]&&HDECOR[it].block);
   }
   if('THDSWBQ'.includes(ch))return true;
@@ -878,7 +893,7 @@ Net.on(m=>{
     O.dir=m.d;O.scene=m.s;O.sit=m.q?1:0;O.has=1;O.seen=Date.now();
   }
   else if(m.t==='pl'){O.look=m.lk||{};O.sleepUntil=Math.min(m.sl||0,Date.now()+SLEEP);O.seen=Date.now()}
-  else if(m.t==='world'){if(newer({rev:m.rev}))applyWorld(Object.assign({},m.w,{rev:m.rev}))}
+  else if(m.t==='world'){if(newer({rev:m.rev,by:m.w&&m.w.by}))applyWorld(Object.assign({},m.w,{rev:m.rev}))}
   else if(m.t==='kiss'){
     const same=O.has&&O.scene===scene;
     const mx=(P.x+(same?O.x:P.x))/2*TS+4,my=(P.y+(same?O.y:P.y))/2*TS-6;
@@ -915,7 +930,7 @@ function toolInfo(t){
 function renderTools(){
   const l=toolList();if(!l.includes(tool))tool='hoe';
   const c=toolInfo(tool);
-  $('tools').innerHTML=`<button class="tool bag" data-bag="1" aria-label="کوله‌پشتی">🎒 کوله‌پشتی<small>در دست: ${c.ic} ${c.nm}${c.sub?' · '+c.sub:''}</small></button><button class="tool" data-chat="1" aria-label="چت" style="min-width:64px">💬<small>چت</small></button>`;
+  $('tools').innerHTML=`<button class="tool bag" data-bag="1" aria-label="کوله‌پشتی" title="در دست: ${c.nm}">🎒<i>${c.ic}</i></button><button class="tool" data-chat="1" aria-label="چت" title="چت">💬</button>`;
   $('rotBtn').hidden=!(SIZE[tool]&&SIZE[tool][2]&&S.items[tool]>0);
   if(!$('bag').hidden)renderBag();
 }
@@ -928,6 +943,7 @@ function renderBag(){
 function openBag(){renderBag();$('bag').hidden=false}
 function closeBag(){$('bag').hidden=true}
 function setTool(t){tool=t;renderTools()}
+document.querySelector('.stage').appendChild($('tools'));
 $('tools').addEventListener('click',e=>{if(e.target.closest('[data-bag]'))openBag();else if(e.target.closest('[data-chat]'))openChat()});
 /* ----- little chat: text floats above the head for a few seconds ----- */
 const bub={me:null,ot:null};
@@ -1035,7 +1051,7 @@ function kiss(){
   say(ROLE==='her'?'💋 عشقت رو بوسیدی':'💋 نانا رو بوسیدی');
 }
 function sitOn(fx,fy){
-  const a=anchorOf(itemMap(),fx,fy);let dr='d';if(a&&a.v.includes('@')&&base(a.v)==='sofa')dr=['d','l','u','r'][rotOf(a.v)%4];
+  const a=anchorOf(itemMap(),fx,fy);let dr='d';if(a&&a.v.includes('@')&&(base(a.v)==='sofa'||base(a.v)==='bench'))dr=['d','l','u','r'][rotOf(a.v)%4];
   P.px=P.x;P.py=P.y;P.x=fx;P.y=fy;P.anim=0;P.sit=1;P.dir=dr;posDirty=true;
   say('نشستی 🪑 برای بلند شدن یه جهت رو بزن');
 }
@@ -1089,13 +1105,91 @@ function place(fx,fy,ch){
   S.items[tool]--;
   say(`${ITEM[tool].n} رو گذاشتی`);renderTools();store();
 }
+
+/* ---------- kitchen ---------- */
+const ING={egg:['🥚','تخم‌مرغ'],tomato:['🍅','گوجه'],cheese:['🧀','پنیر'],bread:['🍞','نان'],rice:['🍚','برنج'],fish:['🐟','ماهی'],chicken:['🍗','مرغ'],potato:['🥔','سیب‌زمینی'],mushroom:['🍄','قارچ'],carrot:['🥕','هویج'],milk:['🥛','شیر'],choco:['🍫','شکلات'],berry:['🍓','توت‌فرنگی'],corn:['🌽','ذرت']};
+const REC={'egg+tomato':'املت گوجه','bread+cheese':'ساندویچ پنیر','chicken+rice':'چلو مرغ','fish+rice':'ماهی و برنج','choco+milk':'شیرکاکائوی داغ','berry+choco':'توت‌فرنگی شکلاتی','bread+egg':'نیمرو و نان','cheese+mushroom':'قارچ پنیری','chicken+potato':'مرغ و سیب‌زمینی','berry+milk':'شیر توت‌فرنگی','cheese+corn':'ذرت پنیری','carrot+rice':'هویج‌پلو','bread+cheese+tomato':'پیتزا','egg+mushroom+tomato':'خوراک قارچ و گوجه','carrot+chicken+potato':'خوراک مرغ'};
+function dishOf(ids){
+  const sorted=ids.slice().sort(),key=sorted.join('+');let n=REC[key];const sp=!!n;
+  if(!n){let h=0;for(const ch of key)h=(h*31+ch.charCodeAt(0))>>>0;const st=['خوراک','پلوی','سوپ','پای','کوکوی','تابه‌ای','کبابی'];n=st[h%st.length]+' '+sorted.map(i=>ING[i][1]).join(' و ')}
+  return{n,ic:ING[ids[0]][0],e:Math.min(7,2+ids.length+(sp?1:0))};
+}
+const cooking=()=>!!S.kit.dish&&S.kit.cookAt>Date.now();
+const dishReady=()=>!!S.kit.dish&&S.kit.cookAt<=Date.now();
+let kitMode='fridge';
+function openKit(m){kitMode=m;renderKit();$('kit').hidden=false}
+function closeKit(){$('kit').hidden=true}
+function renderKit(){
+  const k=S.kit,carry=S.carry||[];
+  $('kitTitle').textContent=kitMode==='fridge'?'🧊 یخچال':'🔥 فر';
+  const chips=a=>a.length?a.map(i=>ING[i][0]+' '+ING[i][1]).join(' · '):'هیچی';
+  let h=`<div class="stamp" style="margin:0 0 8px">ظرف تمیز: ${fa(k.plates)} · ظرف کثیف: ${fa(k.dirty)}</div><div class="stamp" style="margin:0 0 8px">تو دستت: ${chips(carry)} (حداکثر ${fa(3)} تا)</div>`;
+  if(kitMode==='fridge'){
+    h+='<div class="bag-grid">'+Object.keys(ING).map(i=>`<button class="tool" data-take="${i}">${ING[i][0]}<br>${ING[i][1]}</button>`).join('')+'</div>';
+    if(carry.length)h+='<button class="btn sm" data-kact="drop" style="margin-top:10px">برگردوندن همه به یخچال</button>';
+  }else{
+    h+=`<div class="stamp" style="margin:0 0 8px">توی فر: ${chips(k.oven)}</div>`;
+    h+='<div class="bag-grid">'+carry.map((i,ix)=>`<button class="tool" data-put="${ix}">${ING[i][0]}<br>بذار توی فر</button>`).join('')+'</div>';
+    h+=`<div style="display:flex;gap:8px;margin-top:10px"><button class="btn" data-kact="cook" style="flex:1"${k.oven.length&&k.plates>=2?'':' disabled'}>🔥 بپز</button><button class="btn sm" data-kact="clear">خالی کردن فر</button></div>`;
+    if(k.oven.length&&k.plates<2)h+='<div class="stamp" style="margin-top:8px">برای پختن دو تا ظرف تمیز لازمه. اول ظرف‌های کثیف رو تو سینک بشور 🧽</div>';
+    else if(!k.oven.length)h+='<div class="stamp" style="margin-top:8px">از یخچال مواد بردار و بذار توی فر. هر ترکیبی یه غذای جدید می‌ده 🍳</div>';
+  }
+  $('kitBody').innerHTML=h;
+}
+$('kitBody').addEventListener('click',e=>{
+  const t=e.target.closest('[data-take],[data-put],[data-kact]');if(!t)return;
+  const c=S.carry||(S.carry=[]),k=S.kit;
+  if(t.dataset.take){if(c.length>=3){say('دستت پره، سه تا بیشتر نمی‌شه 🖐️');return}c.push(t.dataset.take);storeP()}
+  else if(t.dataset.put!==undefined){const i=+t.dataset.put,ing=c[i];if(!ing||k.oven.length>=3||k.dish)return;c.splice(i,1);k.oven.push(ing);store()}
+  else if(t.dataset.kact==='drop'){S.carry=[];storeP()}
+  else if(t.dataset.kact==='clear'){if(k.dish)return;k.oven=[];store()}
+  else if(t.dataset.kact==='cook'){
+    if(!k.oven.length||k.plates<2||k.dish)return;
+    k.dish=dishOf(k.oven);k.plates-=2;k.cookAt=Date.now()+8000;store();closeKit();
+    say(`داره می‌پزه ${k.dish.ic} ... ${fa(8)} ثانیه صبر کن`);return;
+  }
+  renderKit();
+});
+$('kitClose').addEventListener('click',closeKit);
+$('kit').addEventListener('click',e=>{if(e.target===$('kit'))closeKit()});
+function ovenAct(){
+  const k=S.kit;
+  if(cooking())return say(`داره می‌پزه ${k.dish.ic} ${fa(Math.ceil((k.cookAt-Date.now())/1000))} ثانیه دیگه`);
+  if(dishReady()){
+    if(S.hold)return say('دستت پره، اول اون غذا رو بذار رو میز 🍽️');
+    S.hold={n:k.dish.n,ic:k.dish.ic,e:k.dish.e};k.dish=null;k.cookAt=0;k.oven=[];store();
+    return say(`${S.hold.ic} «${S.hold.n}» آماده شد! دو تا ظرف پره. ببرش رو میز غذاخوری 🍽️`);
+  }
+  openKit('oven');
+}
+function tableAct(){
+  const k=S.kit;
+  if(S.hold){
+    if(k.table.length+2>4)return say('میز جا نداره، اول غذاهای روش رو بخورید 😋');
+    const f={n:S.hold.n,ic:S.hold.ic,e:S.hold.e};k.table.push(f,Object.assign({},f));S.hold=null;store();
+    return say('غذا رو رو میز چیدی 🍽️ بشین و بخور!');
+  }
+  if(!k.table.length)return say('میز خالیه. از یخچال مواد بردار، تو فر بپز و بیارش اینجا 🍳');
+  if(Date.now()-S.eatAt<20000)return say('هنوز سیری 😋 یه کم دیگه صبر کن');
+  const f=k.table.shift();k.dirty++;S.eatAt=Date.now();S.energy=Math.min(MAXE,S.energy+f.e);hud();store();
+  say(`${f.ic} «${f.n}» رو خوردی 😋 ${fa(f.e)} انرژی گرفتی. ظرفش کثیف شد`);
+}
+function sinkAct(){
+  const k=S.kit;
+  if(!k.dirty)return say(S.hold?'ظرف کثیفی نیست. غذات رو ببر رو میز 🍽️':'ظرف کثیفی نیست ✨');
+  const n=k.dirty;k.plates+=n;k.dirty=0;store();
+  say(`${fa(n)} تا ظرف شستی 🧼 حالا ${fa(k.plates)} تا ظرف تمیز داری`);
+}
 function actIn(fx,fy){
   const ch=tileAt(fx,fy),k=fx+','+fy;
   if(ch==='B')return goSleep();
+  if(ch==='F')return openKit('fridge');
+  if(ch==='O')return ovenAct();
+  if(ch==='S')return sinkAct();
   const it=typeAt(S.hdecor,fx,fy);if(it){const an=anchorOf(S.hdecor,fx,fy);return itemAct(it,an.x+','+an.y,fx,fy)}
   if(ch==='K')return say('یه قفسه‌ی کتاب 📚');
   if(ch==='Q')return say('یه گلدون 🪴');
-  if(ch==='T')return say('میز ناهارخوری');
+  if(ch==='T')return tableAct();
   if(DECOR[tool])return say('این وسیله مال بیرون، روی چمنه 🌿');
   if(HDECOR[tool])return place(fx,fy,ch);
   say('برای بیرون رفتن از در پایین برو. وسیله‌ی خونه رو از فروشگاه می‌خری 🛍️');
@@ -1114,7 +1208,7 @@ function actOut(fx,fy){
   say('این‌جا کاری نمی‌شه کرد.');
 }
 function act(){
-  if(!$('shop').hidden||!$('bag').hidden)return;
+  if(!$('shop').hidden||!$('bag').hidden||!$('kit').hidden)return;
   if(S.sleepUntil>Date.now())return wakeUp();
   const [fx,fy]=faceTile();
   if(otherAt(fx,fy))return kiss();
@@ -1164,7 +1258,7 @@ function renderShop(){
   }else if(shopTab==='decor'||shopTab==='house'){
     const cl=shopTab==='decor'?DECOR:HDECOR;
     h=`<div class="stamp" style="margin:0 0 8px">${shopTab==='decor'?'این‌ها رو بیرون، روی چمن بذار':'این‌ها رو توی خونه بذار'} · با «جمع‌کن» برشون دار</div>`
-     +Object.keys(cl).map(k=>{const d=cl[k];
+     +Object.keys(cl).filter(k=>!cl[k].legacy).map(k=>{const d=cl[k];
       return row(d.ic,d.n,(SIZE[k]&&SIZE[k][2]?'با 🔄 می‌چرخه · ':'')+(SIZE[k]&&SIZE[k][0]*SIZE[k][1]>1?fa(SIZE[k][0]*SIZE[k][1])+' خونه · ':'')+(d.sit?'می‌شه روش نشست · ':d.use?'قابل استفاده · ':'')+'داری: '+fa(S.items[k]),`<button class="btn sm" data-buy="decor:${k}">${fa(d.price)} 🪙</button>`)}).join('');
   }else if(shopTab==='look'){
     h=Object.keys(LOOKS).map(k=>{const l=LOOKS[k],own=S.own[k];
@@ -1428,7 +1522,22 @@ function itemSprite(type,px,py,t,key){
   }
 }
 /* the cushion in front of a seated character, so legs vanish into the seat */
+const dsh=(x,yb,w)=>{ctx.fillStyle='rgba(60,30,60,.17)';ctx.beginPath();ctx.ellipse(x+w/2,yb-1.5,w/2,2.6,0,0,7);ctx.fill()};
 function bigSprite(type,r,px,py,t){
+  if(type==='bench'){
+    const W='#c78c5e',Wd='#a56f4f',Wh='#dba87a';
+    if(r===0){R(px+1,py+2,30,4,Wd);R(px+1,py+2,30,1,Wh);R(px,py+7,32,5,W);R(px,py+7,32,1,Wh);R(px+2,py+12,2,4,Wd);R(px+28,py+12,2,4,Wd)}
+    else if(r===2){R(px+1,py+10,30,4,Wd);R(px,py+3,32,5,W);R(px,py+3,32,1,Wh);R(px+2,py+13,2,3,Wd);R(px+28,py+13,2,3,Wd)}
+    else if(r===1){R(px+10,py+1,4,30,Wd);R(px+3,py,6,32,W);R(px+3,py,1,32,Wh);R(px+3,py+2,1,1,Wd)}
+    else{R(px+2,py+1,4,30,Wd);R(px+7,py,6,32,W);R(px+7,py,1,32,Wh)}
+    return;
+  }
+  if(type==='picnic'){
+    R(px+2,py+1,28,5,'#a56f4f');R(px+2,py+26,28,5,'#a56f4f');R(px+2,py+1,28,1,'#c78c5e');R(px+2,py+26,28,1,'#c78c5e');
+    R(px+3,py+7,26,18,'#c98f6b');R(px+3,py+7,26,1,'#ddab86');
+    for(let i=0;i<4;i++)for(let j=0;j<3;j++)R(px+6+i*5,py+9+j*5,5,5,(i+j)%2?'#ffffff':'#ff8fb8');
+    R(px+13,py+14,5,4,'#ffe36e');R(px+14,py+13,3,1,'#ff6b6b');return;
+  }
   if(type==='fence'){
     if(r%2===0)return itemSprite('fence',px,py,t,'');
     R(px+6,py,2,16,'#fff7ee');R(px+9,py,2,16,'#fff7ee');[1,6,11].forEach(o=>{R(px+4,py+o,8,3,'#f1e2cf');R(px+4,py+o,8,1,'#fff')});R(px+12,py,1,16,'#00000014');return;
@@ -1594,7 +1703,17 @@ function drawChar(e,gender,t,look){
   const sw=moving?Math.sin(a*Math.PI):0;
   let bob=moving&&sw>0.7?1:0;
   if(e.sit){const it=seatKind(e.x,e.y);bob=it?ITEM[it].sit[1]:0}
-  char(Math.round(x),Math.round(y),e.dir,e.sit?0:sw,e.par,gender,look,bob);
+  if(e.sit&&!moving){
+    const X=Math.round(x),Y=Math.round(y),b=Y+16-bob,girl=gender==='her';
+    const og=look&&look.outfit&&OUTFITS[look.outfit];
+    const bottom=og?og.bottom:(girl?'#ff8fb8':'#3f5f9a'),shoe=girl?'#c46a8a':'#4a3a35',leg=girl?'#ffd9b8':bottom;
+    ctx.save();ctx.beginPath();ctx.rect(X-8,Y-40,32,(b-5)-(Y-40));ctx.clip();
+    char(X,Y,e.dir,0,0,gender,look,bob);
+    ctx.restore();
+    if(e.dir==='d'){R(X+4,b-6,8,4,bottom);R(X+4,b-3,3,3,leg);R(X+9,b-3,3,3,leg);R(X+4,b,3,2,shoe);R(X+9,b,3,2,shoe)}
+    else if(e.dir==='l'||e.dir==='r'){const f=e.dir==='r'?1:-1;R(X+(f>0?6:2),b-6,8,3,bottom);R(X+(f>0?12:1),b-4,3,5,leg);R(X+(f>0?12:0),b,4,2,shoe)}
+  }else char(Math.round(x),Math.round(y),e.dir,e.sit?0:sw,e.par,gender,look,bob);
+  if(e===P&&S.hold){ctx.font='11px sans-serif';ctx.fillStyle='#000';ctx.fillText(S.hold.ic,Math.round(x)+2,Math.round(y)-22)}
 }
 function drawFx(){
   hearts.forEach(h=>{
@@ -1619,8 +1738,8 @@ function drawOutside(t){
     if(MAP[y][x]==='T')ents.push([y*TS,()=>tree(x*TS,y*TS,x,y,t)]);
     const v=S.decor[x+','+y];
     if(v&&v[0]!=='~'){const d=base(v);
-      if(v.includes('@')&&SIZE[d]){const r=rotOf(v),h=dims(d,r)[1];ents.push([FLAT[d]?y*TS-4:(y+h-1)*TS,()=>bigSprite(d,r,x*TS,y*TS,t)])}
-      else ents.push([y*TS+(FLAT[d]?-4:0),()=>itemSprite(d,x*TS,y*TS,t,x+','+y)])}
+      if(v.includes('@')&&SIZE[d]){const r=rotOf(v),h=dims(d,r)[1];ents.push([FLAT[d]?y*TS-4:(y+h-1)*TS,()=>{if(!FLAT[d]){const w=dims(d,r)[0];dsh(x*TS,(y+h)*TS,w*TS)}bigSprite(d,r,x*TS,y*TS,t)}])}
+      else ents.push([y*TS+(FLAT[d]?-4:0),()=>{if(!FLAT[d])dsh(x*TS,(y+1)*TS,TS);itemSprite(d,x*TS,y*TS,t,x+','+y)}])}
   }
   const hop=cat.hop>0?-Math.round(Math.sin(cat.hop/350*Math.PI)*3):0;
   const ca=cat.anim,cx=(cat.px+(cat.x-cat.px)*ca)*TS,cy=(cat.py+(cat.y-cat.py)*ca)*TS;
@@ -1657,7 +1776,48 @@ function sleeperHead(ox,girl,look){
   if(look&&look.cap)R(ox+4,TS+8,10,2,'#3f94d6');
   if(look&&look.crown)R(ox+5,TS+7,8,2,'#f2cd5b');
 }
+function kitchenTile(ch,px,py,t){
+  if(ch==='F'){R(px,py-7,16,24,'#00000014');R(px+1,py-7,14,22,'#eef2f8');R(px+1,py-7,14,2,'#ffffff');R(px+1,py+3,14,1,'#b4c0d4');R(px+12,py-3,1,5,'#8795ab');R(px+12,py+6,1,6,'#8795ab');R(px+1,py+13,14,2,'#d3dbe8');R(px+3,py-4,3,2,'#d8f0ff')}
+  else if(ch==='S'){R(px,py+4,16,12,'#e9d6bd');R(px,py+2,16,3,'#f8f1e6');R(px+2,py+3,12,5,'#9cc6e6');R(px+3,py+4,10,3,'#c2e2f7');R(px+7,py-2,2,5,'#9aa7b8');R(px+7,py-2,6,1,'#9aa7b8');R(px+12,py-2,1,2,'#9aa7b8');R(px+2,py+10,12,1,'#d2bd9f');R(px+7,py+12,2,2,'#c4aa86');
+    if(S.kit.dirty>0){R(px+3,py+4,4,2,'#fff');R(px+8,py+5,4,2,'#fff')}}
+  else if(ch==='O'){
+    const ck=cooking(),rd=dishReady();
+    R(px,py+4,16,12,'#cfd6e2');R(px,py+2,16,3,'#353a4d');R(px+2,py+3,4,1,'#7b8197');R(px+10,py+3,4,1,'#7b8197');
+    R(px+2,py+6,12,8,'#2b2f3d');R(px+2,py+6,12,1,'#4a5068');
+    if(ck){const f=Math.floor(t/150)%3;R(px+3,py+7,10,6,['#ff9a3c','#ffb347','#ff7a2a'][f]);R(px+3,py+11,10,2,'#ffd27a');ctx.globalAlpha=.55;R(px+4+f,py-3-((t/120)%6|0),2,2,'#fff');R(px+9-f,py-5-((t/160)%6|0),2,2,'#fff');ctx.globalAlpha=1}
+    else if(rd){R(px+3,py+7,10,6,'#b8f2b0');if(Math.floor(t/300)%2)R(px+12,py+5,2,2,'#fff')}
+    R(px+4,py+15,2,1,'#8a93a8');R(px+10,py+15,2,1,'#8a93a8');
+  }
+}
+function drawTable(t){
+  const X=6*TS,Y=4*TS;
+  R(X+2,Y+31,30,3,'#00000022');
+  R(X,Y,32,32,'#8a5a44');R(X+1,Y+1,30,30,'#c98f6b');R(X+2,Y+2,28,28,'#ddab86');R(X+2,Y+2,28,1,'#efc8a4');
+  R(X+13,Y+2,6,28,'#fff0f6');R(X+13,Y+2,6,1,'#ffd3e3');
+  const pos=[[4,5],[21,5],[4,19],[21,19]],tb=S.kit.table;
+  pos.forEach(([ox,oy],i)=>{
+    ctx.fillStyle='#e9d6bd';ctx.beginPath();ctx.ellipse(X+ox+5,Y+oy+4,6,4.5,0,0,7);ctx.fill();
+    const f=tb[i];
+    ctx.fillStyle='#ffffff';ctx.beginPath();ctx.ellipse(X+ox+5,Y+oy+4,5.5,4,0,0,7);ctx.fill();
+    if(f){ctx.fillStyle='#000';ctx.font='8px sans-serif';ctx.fillText(f.ic,X+ox+1,Y+oy+7)}
+  });
+}
 function drawBed(t,herSl,himSl,herLook,himLook){
+  R(TS,TS-2,48,6,'#a56f4f');R(TS,TS+2,48,31,'#c98f6b');R(TS,TS+32,48,2,'#00000018');
+  R(TS+2,TS+5,44,26,'#ffffff');
+  R(TS+4,TS+7,16,7,'#ffe9f1');R(TS+28,TS+7,16,7,'#e1f1ff');
+  if(herSl)sleeperHead(TS+3,true,herLook);
+  if(himSl)sleeperHead(TS+27,false,himLook);
+  R(TS+2,TS+16,23,15,'#ff9cbc');R(TS+2,TS+16,23,2,'#ffb8d0');R(TS+2,TS+23,23,2,'#ffb8d0');
+  R(TS+25,TS+16,21,15,'#7cc4f5');R(TS+25,TS+16,21,2,'#a9dcfa');R(TS+25,TS+23,21,2,'#a9dcfa');
+  R(TS+24,TS+16,2,15,'#ffffff');
+  ctx.fillStyle='#ffffff';ctx.font='bold 9px sans-serif';
+  [[herSl,TS+2],[himSl,TS+26]].forEach(([on,ox])=>{if(!on)return;
+    for(let i=0;i<3;i++){const ph=((t/1200)+i/3)%1;ctx.globalAlpha=1-ph;ctx.fillText('z',ox+TS*1.4+i*5+ph*6,TS*1.6-ph*18-i*2)}
+    ctx.globalAlpha=1;
+  });
+}
+function drawBedOld(t,herSl,himSl,herLook,himLook){
   R(TS,TS-2,64,6,'#a56f4f');R(TS,TS+2,64,30,'#c98f6b');
   [0,32].forEach(o=>{R(TS+o+2,TS+6,28,24,'#ffffff');R(TS+o+4,TS+8,11,6,'#ffe9f1')});
   if(herSl)sleeperHead(TS,true,herLook);
@@ -1679,7 +1839,8 @@ function drawRoom(t){
     const ch=ROOM[y][x],px=x*TS,py=y*TS;
     if(ch==='#'){R(px,py,TS,TS,'#ffd9e6');R(px,py+TS-2,TS,2,'#f0b5c9');if(y===0)R(px,py,TS,3,'#ffc2d8')}
     else if(ch==='E'){R(px,py,TS,TS,'#efd0b3');R(px+1,py+2,14,12,'#7cc4f5');R(px+3,py+4,10,8,'#a9dcfa')}
-    else R(px,py,TS,TS,(x+y)%2?'#f6dfc8':'#f0d5ba');
+    else{R(px,py,TS,TS,(x+y)%2?'#f6dfc8':'#f0d5ba');R(px,py+TS-1,TS,1,'#0000000d');R(px+((y%2)?4:11),py,1,TS,'#0000000f');kitchenTile(ch,px,py,t)}
+    if(ch==='#'&&y===0&&x>=8&&x<=10){R(px,py,TS,TS,'#fff');R(px,py+7,TS,1,'#d6e4f2');R(px+7,py,1,7,'#d6e4f2');R(px+3,py+8,1,6,'#d6e4f2');R(px+11,py+8,1,6,'#d6e4f2')}
   }
   R(2*TS+8,5*TS-2,10*TS-16,6*TS+4,'#ff9fc0');R(2*TS+11,5*TS+1,10*TS-22,6*TS-2,'#ffd3e3');
   for(let i=0;i<4;i++)R(2*TS+16+i*28,5*TS+14,12,12,'#fff0f6');
@@ -1688,15 +1849,15 @@ function drawRoom(t){
   R(2*TS+2,3,28,13,night?'#243a6b':'#8fd6ff');R(2*TS+15,3,2,13,'#fff');R(2*TS+2,8,28,2,'#fff');
   R(6*TS,TS-4,32,TS+4,'#a56f4f');for(let i=0;i<4;i++)R(6*TS+2+i*7,TS-2,5,10,['#ff8fb8','#8fd0ff','#ffe36e','#a9e3a0'][i]);R(6*TS+2,TS+9,28,2,'#8a5a44');
   R(11*TS+4,TS+7,8,6,'#e6a07a');R(11*TS+3,TS,4,7,'#4caf62');R(11*TS+8,TS-2,4,9,'#5ccf72');
-  R(6*TS+2,4*TS+4,28,12,'#c98f6b');R(6*TS+2,4*TS+4,28,2,'#ddab86');R(6*TS+4,4*TS+16,3,4,'#a56f4f');R(6*TS+25,4*TS+16,3,4,'#a56f4f');R(6*TS+10,4*TS,12,5,'#ffe9f1');R(6*TS+14,4*TS-2,4,3,'#ff8fb8');
+  drawTable(t);
   const herSl=ROLE==='her'?mySl:oSl,himSl=ROLE==='him'?mySl:oSl;
   drawBed(t,herSl,himSl,ROLE==='her'?S.look:O.look,ROLE==='him'?S.look:O.look);
   const ents=[];
   for(const k in S.hdecor){
     const v=S.hdecor[k];if(v[0]==='~')continue;
     const[x,y]=k.split(',').map(Number),it=base(v);
-    if(v.includes('@')&&SIZE[it]){const r=rotOf(v),h=dims(it,r)[1];ents.push([(FLAT[it]?y*TS-4:(y+h-1)*TS),()=>bigSprite(it,r,x*TS,y*TS,t)])}
-    else ents.push([y*TS+(FLAT[it]?-4:0),()=>itemSprite(it,x*TS,y*TS,t,k)])
+    if(v.includes('@')&&SIZE[it]){const r=rotOf(v),h=dims(it,r)[1];ents.push([(FLAT[it]?y*TS-4:(y+h-1)*TS),()=>{if(!FLAT[it]){const w=dims(it,r)[0];dsh(x*TS,(y+h)*TS,w*TS)}bigSprite(it,r,x*TS,y*TS,t)}])}
+    else ents.push([y*TS+(FLAT[it]?-4:0),()=>{if(!FLAT[it])dsh(x*TS,(y+1)*TS,TS);itemSprite(it,x*TS,y*TS,t,k)}])
   }
   if(!mySl)ents.push([entY(P),()=>{drawChar(P,gSelf(),t,S.look);if(P.sit&&P.anim>=1)seatFront(P.x,P.y)}]);
   if(oVisible())ents.push([entY(O),()=>{drawChar(O,gOther(),t,O.look);if(O.sit&&O.anim>=1)seatFront(O.x,O.y)}]);
@@ -1707,7 +1868,12 @@ function drawRoom(t){
   ctx.restore();
   if(mySl){ctx.fillStyle='rgba(20,30,90,.38)';ctx.fillRect(0,0,cv.width,cv.height)}
 }
-function draw(t){scene==='in'?drawRoom(t):drawOutside(t)}
+function vignette(){
+  const g=ctx.createRadialGradient(cv.width/2,cv.height/2,cv.height*.32,cv.width/2,cv.height/2,cv.height*.78);
+  g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(50,25,70,.24)');
+  ctx.fillStyle=g;ctx.fillRect(0,0,cv.width,cv.height);
+}
+function draw(t){scene==='in'?drawRoom(t):drawOutside(t);vignette()}
 
 let last=performance.now();
 function frame(now){
@@ -1719,15 +1885,17 @@ function guide(){
   say(S.sleepUntil>Date.now()?`خوابیده‌ای 😴 ${fmt(S.sleepUntil-Date.now())} تا بیدار شدن. با دکمه می‌تونی زودتر بیدار شی`:'اول با کلنگ زمین رو شخم بزن، بعد بذر گندم بکار. فروشگاه بالا سمت راسته 🛍️');
 }
 renderTools();hud();setInterval(hud,30000);
-window.farmCurrent=()=>S;
+window.farmCurrent=()=>S;window.farmSay=m=>say(m);
 window.farmSleepText=()=>O.has&&O.sleepUntil>Date.now()?fmt(O.sleepUntil-Date.now()):'';
 /* called after every server pull: merge the shared world, my own personal data (first time only) and the other player's stored state */
 window.farmSync=(d,first)=>{
   initFor(ROLE);
-  if(d.farm&&newer(d.farm))applyWorld(d.farm);
+  let best=null;
+  [d.farm,d.pl_him&&d.pl_him.w,d.pl_her&&d.pl_her.w].forEach(c=>{if(c&&(!best||(c.rev||0)>(best.rev||0)))best=c});
+  if(best&&newer(best))applyWorld(best);
   const mine=d['pl_'+ROLE]||(ROLE==='her'&&d.farm&&d.farm.v===2?d.farm:null);
   if(first&&mine){const np=norm(mine);if((np.ts||0)>(S.ts||0))PERSONAL.forEach(k=>{S[k]=np[k]})}
-  if(first&&!d.farm)store();
+  if(first&&!best)store();
   else if(first&&!d['pl_'+ROLE])storeP();
   const op=d['pl_'+otherRole()];if(op)setOtherStored(op);
   renderTools();hud();if(!$('shop').hidden)renderShop();
