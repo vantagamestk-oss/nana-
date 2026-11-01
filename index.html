@@ -673,7 +673,11 @@ const DECOR={
 const HDECOR={
   sofa:{n:'مبل دونفره',ic:'🛋️',price:60,block:true,sit:['#ff9fc3',-1]},
   chair:{n:'صندلی',ic:'🪑',price:20,block:true,sit:['#c98f6b',-1]},
-  tv:{n:'تلویزیون',ic:'📺',price:60,block:true,use:'tv'},
+  tv:{n:'تلویزیون بزرگ (دو خونه)',ic:'📺',price:90,block:true,use:'tv'},
+  kfridge:{n:'یخچال',ic:'🧊',price:55,block:true,use:'kfridge',legacy:true},
+  ksink:{n:'سینک ظرفشویی',ic:'🚰',price:40,block:true,use:'ksink',legacy:true},
+  kovn:{n:'فر و اجاق',ic:'🔥',price:60,block:true,use:'kovn',legacy:true},
+  ktable:{n:'میز ناهارخوری',ic:'🍽️',price:50,block:true,use:'ktable',legacy:true},
   phone:{n:'میز و موبایل',ic:'📱',price:35,block:true,use:'phone'},
   radio:{n:'رادیو',ic:'📻',price:30,block:true,use:'radio'},
   piano:{n:'پیانو',ic:'🎹',price:100,block:true,use:'piano'},
@@ -683,7 +687,7 @@ const HDECOR={
   rug:{n:'فرش گرد بزرگ',ic:'🟣',price:35}};
 const ITEM=Object.assign({},DECOR,HDECOR);
 /* size in tiles [w,h,rotatable]. A big item is stored as 'type@rotation' on its first tile and '~dx,dy' (offset back to it) on the others */
-const SIZE={sofa:[2,1,1],piano:[2,1,0],rug:[2,2,0],fountain:[2,2,0],fence:[1,1,1],fairy:[3,1,1],bench:[2,1,1],picnic:[2,2,0]};
+const SIZE={sofa:[2,1,1],piano:[2,1,0],rug:[2,2,0],fountain:[2,2,0],fence:[1,1,1],fairy:[3,1,1],bench:[2,1,1],picnic:[2,2,0],tv:[2,1,1],ktable:[2,2,0]};
 let rot=0;
 const base=v=>v?String(v).split('@')[0]:v;
 const rotOf=v=>{const i=String(v).indexOf('@');return i<0?0:(+String(v).slice(i+1)||0)};
@@ -746,17 +750,17 @@ const MAP=[];
 const mapAt=(x,y)=>(y<0||y>=H||x<0||x>=W)?'T':MAP[y][x];
 const ROOM=[
 "##############",
-"#BBB.KK.FSO.Q#",
-"#BBB.........#",
-"#............#",
-"#.....TT.....#",
-"#.....TT.....#",
+"#BBBQKK.#....#",
+"#BBB....#....#",
+"#.......#....#",
 "#............#",
 "#............#",
-"#............#",
-"#............#",
-"#............#",
-"######E#######"];
+"#.......######",
+"#.......#     ",
+"#.......#     ",
+"#.......#     ",
+"#.......#     ",
+"####E####     "];
 const RW=14,RH=12;
 
 const cv=$('gc'),ctx=cv.getContext('2d');
@@ -766,9 +770,9 @@ cv.width=VW*TS;cv.height=VH*TS;
 const SHARED=['coins','inv','soil','unlocked','items','decor','hdecor','on','kit'];
 const PERSONAL=['energy','sleepUntil','pos','look','own','eatAt','ts','hold','carry'];
 const pick=(o,ks)=>{const r={};ks.forEach(k=>{if(o&&o[k]!==undefined)r[k]=o[k]});return r};
-const KIT0=()=>({plates:4,dirty:0,oven:[],cookAt:0,dish:null,table:[]});
+const KIT0=()=>({plates:4,dirty:0,oven:[],cookAt:0,dish:null,table:[null,null,null,null],v3:false});
 function normKit(k){const d=KIT0();if(!k||typeof k!=='object')return d;
-  return{plates:Math.max(0,Math.min(12,k.plates??4)),dirty:Math.max(0,k.dirty|0),oven:Array.isArray(k.oven)?k.oven.slice(0,3):[],cookAt:+k.cookAt||0,dish:k.dish||null,table:Array.isArray(k.table)?k.table.slice(0,4):[]}}
+  return{plates:Math.max(0,Math.min(12,k.plates??4)),dirty:Math.max(0,k.dirty|0),oven:Array.isArray(k.oven)?k.oven.slice(0,3):[],cookAt:+k.cookAt||0,dish:k.dish||null,table:[0,1,2,3].map(i=>(Array.isArray(k.table)&&k.table[i])||null),v3:!!k.v3}}
 function norm(o){
   o=o||{};
   const items={},own={};
@@ -779,7 +783,7 @@ function norm(o){
     soil:o.soil||{},pos:o.pos||null,
     unlocked:Object.assign({wheat:1},o.unlocked||{}),
     items:Object.assign(items,o.items||{}),
-    decor:o.decor||{},hdecor:o.hdecor||{},on:o.on||{},kit:normKit(o.kit),hold:o.hold||null,carry:Array.isArray(o.carry)?o.carry.slice(0,3):[],
+    decor:o.decor||{},hdecor:o.hdecor||{},on:o.on||{},kit:normKit(o.kit),hold:o.hold?(o.hold.t?o.hold:Object.assign({t:'food'},o.hold)):null,carry:Array.isArray(o.carry)?o.carry.slice(0,3):[],
     own:Object.assign(own,o.own||{}),look:o.look||{},eatAt:o.eatAt||0,ts:o.ts||0};
 }
 let S=norm({}),inited='',lastBy='';
@@ -852,14 +856,14 @@ const blocked=(x,y)=>{
   const ch=tileAt(x,y);
   if(otherAt(x,y))return true;
   if(scene==='in'){
-    if('#BKTFSO'.includes(ch)||ch==='Q')return true;
+    if('#BK '.includes(ch)||ch==='Q')return true;
     const it=typeAt(S.hdecor,x,y);return !!(it&&HDECOR[it]&&HDECOR[it].block);
   }
   if('THDSWBQ'.includes(ch))return true;
   const d=typeAt(S.decor,x,y);if(d&&DECOR[d]&&DECOR[d].block)return true;
   return cat.x===x&&cat.y===y;
 };
-function spawnPoint(){return scene==='in'?[6,10]:[7,8]}
+function spawnPoint(){return scene==='in'?[4,10]:[7,8]}
 function restorePos(){
   const p=S.pos;
   scene=(S.sleepUntil>Date.now()||(p&&p.scene==='in'))?'in':'out';
@@ -983,7 +987,7 @@ function spend(n){
   S.energy-=n;return true;
 }
 function enterHouse(){
-  scene='in';P.x=P.px=6;P.y=P.py=10;P.anim=1;P.dir='u';P.sit=0;snapCam();savePos();sendPos(true);
+  scene='in';P.x=P.px=4;P.y=P.py=10;P.anim=1;P.dir='u';P.sit=0;snapCam();savePos();sendPos(true);
   say(S.energy<=0?'انرژی‌ت صفره. برو سمت تخت و بخواب 🛏️':'توی خونه‌ای. تخت بالا سمت چپه 🛏️');
 }
 function exitHouse(){scene='out';P.x=P.px=6;P.y=P.py=7;P.anim=1;P.dir='d';P.sit=0;snapCam();savePos();sendPos(true);say('')}
@@ -1064,6 +1068,10 @@ function pickUp(fx,fy){
 }
 function useItem(it,k){
   const u=ITEM[it].use,on=S.on;
+  if(u==='kfridge')return openKit('fridge');
+  if(u==='kovn')return ovenAct();
+  if(u==='ksink')return sinkAct();
+  if(u==='ktable')return tableAct();
   if(u==='tv'||u==='radio'){
     const now=!on[k];if(now)on[k]=1;else delete on[k];
     say(u==='tv'?(now?'تلویزیون روشن شد 📺':'تلویزیون خاموش شد'):(now?'رادیو روشن شد 📻🎶':'رادیو خاموش شد'));
@@ -1098,7 +1106,7 @@ function place(fx,fy,ch){
   for(let j=0;j<h;j++)for(let i=0;i<w;i++){
     const tx=fx+i,ty=fy+j;
     if(tileAt(tx,ty)!=='.'||map[tx+','+ty])return say(z?'اینجا جای کافی برای این وسیله نیست. یه جای خالی‌تر پیدا کن یا بچرخونش 🔄':'این‌جا جای وسیله نیست. یه جای خالی پیدا کن.');
-    if(scene==='in'&&tx===6&&ty>=9)return say('جلوی در رو خالی بذار 🚪');
+    if(scene==='in'&&tx===4&&ty>=9)return say('جلوی در رو خالی بذار 🚪');
     if(otherAt(tx,ty)||(scene==='out'&&cat.x===tx&&cat.y===ty))return say('الان این‌جا کسی هست');
   }
   for(let j=0;j<h;j++)for(let i=0;i<w;i++)map[(fx+i)+','+(fy+j)]=(i||j)?'~'+(-i)+','+(-j):(z?tool+'@'+r:tool);
@@ -1123,7 +1131,7 @@ function renderKit(){
   const k=S.kit,carry=S.carry||[];
   $('kitTitle').textContent=kitMode==='fridge'?'🧊 یخچال':'🔥 فر';
   const chips=a=>a.length?a.map(i=>ING[i][0]+' '+ING[i][1]).join(' · '):'هیچی';
-  let h=`<div class="stamp" style="margin:0 0 8px">ظرف تمیز: ${fa(k.plates)} · ظرف کثیف: ${fa(k.dirty)}</div><div class="stamp" style="margin:0 0 8px">تو دستت: ${chips(carry)} (حداکثر ${fa(3)} تا)</div>`;
+  let h=`<div class="stamp" style="margin:0 0 8px">ظرف تمیز: ${fa(k.plates)} · بشقاب کثیف روی میز: ${fa(k.table.filter(x=>x&&x.d).length+k.dirty)}</div><div class="stamp" style="margin:0 0 8px">تو دستت: ${chips(carry)} (حداکثر ${fa(3)} تا)</div>`;
   if(kitMode==='fridge'){
     h+='<div class="bag-grid">'+Object.keys(ING).map(i=>`<button class="tool" data-take="${i}">${ING[i][0]}<br>${ING[i][1]}</button>`).join('')+'</div>';
     if(carry.length)h+='<button class="btn sm" data-kact="drop" style="margin-top:10px">برگردوندن همه به یخچال</button>';
@@ -1131,7 +1139,7 @@ function renderKit(){
     h+=`<div class="stamp" style="margin:0 0 8px">توی فر: ${chips(k.oven)}</div>`;
     h+='<div class="bag-grid">'+carry.map((i,ix)=>`<button class="tool" data-put="${ix}">${ING[i][0]}<br>بذار توی فر</button>`).join('')+'</div>';
     h+=`<div style="display:flex;gap:8px;margin-top:10px"><button class="btn" data-kact="cook" style="flex:1"${k.oven.length&&k.plates>=2?'':' disabled'}>🔥 بپز</button><button class="btn sm" data-kact="clear">خالی کردن فر</button></div>`;
-    if(k.oven.length&&k.plates<2)h+='<div class="stamp" style="margin-top:8px">برای پختن دو تا ظرف تمیز لازمه. اول ظرف‌های کثیف رو تو سینک بشور 🧽</div>';
+    if(k.oven.length&&k.plates<2)h+='<div class="stamp" style="margin-top:8px">برای پختن دو تا ظرف تمیز لازمه. بشقاب‌های کثیف رو از رو میز جمع کن و تو سینک بشور 🧽</div>';
     else if(!k.oven.length)h+='<div class="stamp" style="margin-top:8px">از یخچال مواد بردار و بذار توی فر. هر ترکیبی یه غذای جدید می‌ده 🍳</div>';
   }
   $('kitBody').innerHTML=h;
@@ -1156,29 +1164,60 @@ function ovenAct(){
   const k=S.kit;
   if(cooking())return say(`داره می‌پزه ${k.dish.ic} ${fa(Math.ceil((k.cookAt-Date.now())/1000))} ثانیه دیگه`);
   if(dishReady()){
-    if(S.hold)return say('دستت پره، اول اون غذا رو بذار رو میز 🍽️');
-    S.hold={n:k.dish.n,ic:k.dish.ic,e:k.dish.e};k.dish=null;k.cookAt=0;k.oven=[];store();
-    return say(`${S.hold.ic} «${S.hold.n}» آماده شد! دو تا ظرف پره. ببرش رو میز غذاخوری 🍽️`);
+    if(S.hold)return say('دستت پره، اول اون رو بذار رو میز یا تو سینک 🍽️');
+    S.hold={t:'food',n:k.dish.n,ic:k.dish.ic,e:k.dish.e};k.dish=null;k.cookAt=0;k.oven=[];store();
+    return say(`${S.hold.ic} «${S.hold.n}» آماده شد! دو تا بشقاب پره. ببرش رو میز غذاخوری 🍽️`);
   }
   openKit('oven');
 }
 function tableAct(){
-  const k=S.kit;
-  if(S.hold){
-    if(k.table.length+2>4)return say('میز جا نداره، اول غذاهای روش رو بخورید 😋');
-    const f={n:S.hold.n,ic:S.hold.ic,e:S.hold.e};k.table.push(f,Object.assign({},f));S.hold=null;store();
-    return say('غذا رو رو میز چیدی 🍽️ بشین و بخور!');
+  const k=S.kit,tb=k.table;
+  if(S.hold&&S.hold.t==='food'){
+    const free=[0,1,2,3].filter(i=>!tb[i]);
+    if(free.length<2)return say('میز جا نداره. اول غذاها رو بخورید و بشقاب‌ها رو جمع کنید 😋');
+    const f={n:S.hold.n,ic:S.hold.ic,e:S.hold.e};tb[free[0]]=f;tb[free[1]]=Object.assign({},f);S.hold=null;store();
+    return say('بشقاب‌ها رو رو میز چیدی 🍽️ حالا بخورید!');
   }
-  if(!k.table.length)return say('میز خالیه. از یخچال مواد بردار، تو فر بپز و بیارش اینجا 🍳');
-  if(Date.now()-S.eatAt<20000)return say('هنوز سیری 😋 یه کم دیگه صبر کن');
-  const f=k.table.shift();k.dirty++;S.eatAt=Date.now();S.energy=Math.min(MAXE,S.energy+f.e);hud();store();
-  say(`${f.ic} «${f.n}» رو خوردی 😋 ${fa(f.e)} انرژی گرفتی. ظرفش کثیف شد`);
+  if(S.hold)return say('دستت پره. بشقاب‌های کثیف رو ببر تو سینک 🧼');
+  const fi=tb.findIndex(x=>x&&!x.d);
+  if(fi>=0){
+    if(Date.now()-S.eatAt<20000)return say('هنوز سیری 😋 یه کم دیگه صبر کن');
+    const f=tb[fi];tb[fi]={d:1};S.eatAt=Date.now();S.energy=Math.min(MAXE,S.energy+f.e);hud();store();
+    return say(`${f.ic} «${f.n}» رو خوردی 😋 ${fa(f.e)} انرژی گرفتی. بشقاب کثیفش رو میزه، جمعش کن`);
+  }
+  const n=tb.filter(x=>x&&x.d).length;
+  if(n){for(let i=0;i<4;i++)if(tb[i]&&tb[i].d)tb[i]=null;S.hold={t:'dirty',n,ic:'🍽️'};store();return say(`${fa(n)} تا بشقاب کثیف برداشتی. ببر تو سینک بشورشون 🧼`)}
+  say('میز خالیه. از یخچال مواد بردار، تو فر بپز و بیارش اینجا 🍳');
 }
 function sinkAct(){
   const k=S.kit;
-  if(!k.dirty)return say(S.hold?'ظرف کثیفی نیست. غذات رو ببر رو میز 🍽️':'ظرف کثیفی نیست ✨');
-  const n=k.dirty;k.plates+=n;k.dirty=0;store();
-  say(`${fa(n)} تا ظرف شستی 🧼 حالا ${fa(k.plates)} تا ظرف تمیز داری`);
+  if(S.hold&&S.hold.t==='dirty'){const n=S.hold.n;S.hold=null;k.plates+=n;store();return say(`${fa(n)} تا بشقاب شستی 🧼 حالا ${fa(k.plates)} تا بشقاب تمیز داری`)}
+  if(S.hold)return say('این غذاست! ببرش رو میز 🍽️');
+  if(k.dirty){const n=k.dirty;k.plates+=n;k.dirty=0;store();return say(`${fa(n)} تا بشقاب شستی 🧼`)}
+  say('بشقاب کثیفی تو دستت نیست. اول از رو میز جمعشون کن ✨');
+}
+function ensureKitchen(){
+  const k=S.kit;if(k.v3)return;
+  const map=S.hdecor,cellsOf=(x,y,v)=>{const it=base(v),[w,h]=v.includes('@')?dims(it,rotOf(v)):[1,1],c=[];for(let j=0;j<h;j++)for(let i=0;i<w;i++)c.push([x+i,y+j]);return c};
+  for(const key of Object.keys(map)){
+    const v=map[key];if(!v||v[0]==='~')continue;
+    const[x,y]=key.split(',').map(Number),cs=cellsOf(x,y,v);
+    if(cs.some(([cx,cy])=>!(ROOM[cy]&&ROOM[cy][cx]==='.'))){cs.forEach(([cx,cy])=>{delete map[cx+','+cy];delete S.on[cx+','+cy]});S.items[base(v)]=(S.items[base(v)]||0)+1}
+  }
+  const free=(x,y,w,h)=>{for(let j=0;j<h;j++)for(let i=0;i<w;i++){if(!(ROOM[y+j]&&ROOM[y+j][x+i]==='.')||map[(x+i)+','+(y+j)])return false}return true};
+  const placed=t=>Object.keys(map).some(key=>map[key]&&map[key][0]!=='~'&&base(map[key])===t);
+  const place1=(t,w,h,cands)=>{
+    if(placed(t))return;
+    const c=cands.find(([x,y])=>free(x,y,w,h));if(!c)return;
+    if(S.items[t]>0)S.items[t]--;
+    for(let j=0;j<h;j++)for(let i=0;i<w;i++)map[(c[0]+i)+','+(c[1]+j)]=(i||j)?'~'+(-i)+','+(-j):(SIZE[t]?t+'@0':t);
+  };
+  place1('kfridge',1,1,[[9,1],[12,1],[9,2],[12,2]]);
+  place1('ksink',1,1,[[10,1],[9,2],[12,2],[9,3]]);
+  place1('kovn',1,1,[[11,1],[12,2],[12,3],[9,3]]);
+  place1('ktable',2,2,[[10,3],[10,2],[3,4],[4,3]]);
+  ['kfridge','ksink','kovn','ktable'].forEach(t=>{if(!placed(t)&&!(S.items[t]>0))S.items[t]=1});
+  k.v3=true;store();
 }
 function actIn(fx,fy){
   const ch=tileAt(fx,fy),k=fx+','+fy;
@@ -1450,6 +1489,9 @@ function tree(px,py,x,y,t){
 }
 
 function itemSprite(type,px,py,t,key){
+  if(type==='kfridge')return kitchenTile('F',px,py,t);
+  if(type==='ksink')return kitchenTile('S',px,py,t);
+  if(type==='kovn')return kitchenTile('O',px,py,t);
   if(type==='lantern'){R(px+7,py+1,2,3,'#4a4f66');R(px+5,py+3,6,1,'#4a4f66');R(px+4,py+5,8,7,'#ff6b6b');R(px+5,py+4,6,1,'#ff6b6b');R(px+6,py+6,4,5,isNight()?'#fff2a8':'#ffd27a');R(px+5,py+12,6,1,'#4a4f66');R(px+7,py+13,2,3,'#ffe36e');R(px+4,py+5,1,7,'#d94f64');return}
   if(type==='fence'){R(px+1,py+6,14,2,'#fff7ee');R(px+1,py+11,14,2,'#fff7ee');[2,7,12].forEach(o=>{R(px+o,py+3,3,11,'#f1e2cf');R(px+o,py+3,3,1,'#fff')});R(px+1,py+14,14,1,'#00000014')}
   else if(type==='flower'){R(px+1,py+4,14,11,'#9a6a46');[[3,6,'#ff7fae'],[8,5,'#ffffff'],[12,7,'#8fd0ff'],[5,10,'#ffe36e'],[10,11,'#ff9fc3']].forEach(([a,b,c])=>{R(px+a,py+b+2,1,4,'#43a85a');R(px+a-1,py+b,3,3,c);R(px+a,py+b+1,1,1,'#ffe36e')})}
@@ -1523,7 +1565,24 @@ function itemSprite(type,px,py,t,key){
 }
 /* the cushion in front of a seated character, so legs vanish into the seat */
 const dsh=(x,yb,w)=>{ctx.fillStyle='rgba(60,30,60,.17)';ctx.beginPath();ctx.ellipse(x+w/2,yb-1.5,w/2,2.6,0,0,7);ctx.fill()};
-function bigSprite(type,r,px,py,t){
+function bigSprite(type,r,px,py,t,key){
+  if(type==='ktable')return drawTable(px,py,t);
+  if(type==='tv'){
+    const on=S.on[key],c=['#7cc4f5','#ffb3cf','#a9e3a0','#ffe36e'][Math.floor(t/260)%4];
+    if(r===0){
+      R(px+9,py+12,14,3,'#a56f4f');R(px+5,py+14,22,2,'#8a5a44');
+      R(px,py,32,13,'#262b3b');R(px,py,32,1,'#3b4256');
+      if(on){R(px+2,py+2,28,9,c);R(px+2,py+2+(Math.floor(t/130)%8),28,2,'#ffffff88');R(px+8,py+4,12,4,'#ffffff55');R(px+3,py+3,6,1,'#ffffffaa')}
+      else{R(px+2,py+2,28,9,'#1b2135');R(px+4,py+3,8,1,'#ffffff30');R(px+3,py+5,2,1,'#ffffff18')}
+      R(px+15,py+12,2,1,on?'#7CFC9A':'#ff6b6b');
+    }
+    else if(r===2){R(px+1,py+1,30,12,'#2b2f3d');R(px+13,py+13,6,2,'#4a4f66');R(px+5,py+4,9,6,'#353b4f');R(px+19,py+4,8,6,'#353b4f')}
+    else{
+      const fl=r===1;R(px+3,py+1,10,30,'#262b3b');
+      R(fl?px+3:px+11,py+3,2,26,on?c:'#1b2135');R(px+5,py+30,6,2,'#8a5a44');
+    }
+    return;
+  }
   if(type==='bench'){
     const W='#c78c5e',Wd='#a56f4f',Wh='#dba87a';
     if(r===0){R(px+1,py+2,30,4,Wd);R(px+1,py+2,30,1,Wh);R(px,py+7,32,5,W);R(px,py+7,32,1,Wh);R(px+2,py+12,2,4,Wd);R(px+28,py+12,2,4,Wd)}
@@ -1750,6 +1809,7 @@ function drawOutside(t){
   butterflies(t);
   drawFx();
   ctx.restore();
+  if(!night)clouds(t);
   const dark=nightAlpha();
   if(dark>0){
     ctx.fillStyle=`rgba(40,60,130,${dark})`;ctx.fillRect(0,0,cv.width,cv.height);
@@ -1789,17 +1849,18 @@ function kitchenTile(ch,px,py,t){
     R(px+4,py+15,2,1,'#8a93a8');R(px+10,py+15,2,1,'#8a93a8');
   }
 }
-function drawTable(t){
-  const X=6*TS,Y=4*TS;
+function drawTable(X,Y,t){
   R(X+2,Y+31,30,3,'#00000022');
   R(X,Y,32,32,'#8a5a44');R(X+1,Y+1,30,30,'#c98f6b');R(X+2,Y+2,28,28,'#ddab86');R(X+2,Y+2,28,1,'#efc8a4');
   R(X+13,Y+2,6,28,'#fff0f6');R(X+13,Y+2,6,1,'#ffd3e3');
-  const pos=[[4,5],[21,5],[4,19],[21,19]],tb=S.kit.table;
-  pos.forEach(([ox,oy],i)=>{
-    ctx.fillStyle='#e9d6bd';ctx.beginPath();ctx.ellipse(X+ox+5,Y+oy+4,6,4.5,0,0,7);ctx.fill();
+  const pos=[[8,8],[24,8],[8,24],[24,24]],tb=S.kit.table;
+  pos.forEach(([cx,cy],i)=>{
     const f=tb[i];
-    ctx.fillStyle='#ffffff';ctx.beginPath();ctx.ellipse(X+ox+5,Y+oy+4,5.5,4,0,0,7);ctx.fill();
-    if(f){ctx.fillStyle='#000';ctx.font='8px sans-serif';ctx.fillText(f.ic,X+ox+1,Y+oy+7)}
+    ctx.fillStyle='#d9c3a5';ctx.beginPath();ctx.arc(X+cx,Y+cy,6.5,0,7);ctx.fill();
+    ctx.fillStyle='#ffffff';ctx.beginPath();ctx.arc(X+cx,Y+cy,5.5,0,7);ctx.fill();
+    ctx.fillStyle='#eef1f7';ctx.beginPath();ctx.arc(X+cx,Y+cy,3.6,0,7);ctx.fill();
+    if(f&&f.d){R(X+cx-2,Y+cy-1,3,2,'#c9a27a');R(X+cx+1,Y+cy+1,2,1,'#e0b88f');R(X+cx-3,Y+cy+1,1,1,'#e0b88f')}
+    else if(f){ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='9px sans-serif';ctx.fillStyle='#000';ctx.fillText(f.ic,X+cx,Y+cy+.5);ctx.textAlign='left';ctx.textBaseline='alphabetic'}
   });
 }
 function drawBed(t,herSl,himSl,herLook,himLook){
@@ -1835,28 +1896,42 @@ function drawRoom(t){
   R(0,0,cv.width,cv.height,'#3a2a3f');
   ctx.save();ctx.translate(0,off);
   const now=Date.now(),mySl=S.sleepUntil>now,oSl=!!(O.has&&O.sleepUntil>now),night=isNight();
+  const wl=(x,y)=>!!(ROOM[y]&&ROOM[y][x]==='#');
   for(let y=0;y<RH;y++)for(let x=0;x<RW;x++){
     const ch=ROOM[y][x],px=x*TS,py=y*TS;
-    if(ch==='#'){R(px,py,TS,TS,'#ffd9e6');R(px,py+TS-2,TS,2,'#f0b5c9');if(y===0)R(px,py,TS,3,'#ffc2d8')}
+    if(ch===' ')continue;
+    if(ch==='#'){
+      R(px,py,TS,TS,'#ffd9e6');
+      if(y===0||!wl(x,y-1))R(px,py,TS,3,'#ffc2d8');
+      if(y<RH-1&&!wl(x,y+1)){R(px,py+TS-6,TS,6,'#ffc5da');R(px,py+TS-7,TS,1,'#ffffff');R(px,py+TS-2,TS,2,'#f0b5c9')}
+      else R(px,py+TS-2,TS,2,'#f0b5c9');
+      if(y===0&&x>=9&&x<=12){R(px,py,TS,TS-6,'#ffffff');R(px,py+7,TS,1,'#d6e4f2');R(px+7,py,1,7,'#d6e4f2');R(px+3,py+8,1,2,'#d6e4f2');R(px+11,py+8,1,2,'#d6e4f2')}
+    }
     else if(ch==='E'){R(px,py,TS,TS,'#efd0b3');R(px+1,py+2,14,12,'#7cc4f5');R(px+3,py+4,10,8,'#a9dcfa')}
-    else{R(px,py,TS,TS,(x+y)%2?'#f6dfc8':'#f0d5ba');R(px,py+TS-1,TS,1,'#0000000d');R(px+((y%2)?4:11),py,1,TS,'#0000000f');kitchenTile(ch,px,py,t)}
-    if(ch==='#'&&y===0&&x>=8&&x<=10){R(px,py,TS,TS,'#fff');R(px,py+7,TS,1,'#d6e4f2');R(px+7,py,1,7,'#d6e4f2');R(px+3,py+8,1,6,'#d6e4f2');R(px+11,py+8,1,6,'#d6e4f2')}
+    else{
+      if(y>=1&&y<=5&&(x>=9&&x<=12||(x===8&&y>=4))){R(px,py,TS,TS,(x+y)%2?'#e6f1f9':'#d3e5f3');R(px,py+TS-1,TS,1,'#bcd3e6');R(px+TS-1,py,1,TS,'#bcd3e6')}
+      else{R(px,py,TS,TS,(x+y)%2?'#f6dfc8':'#f0d5ba');R(px,py+TS-1,TS,1,'#0000000d');R(px+((y%2)?4:11),py,1,TS,'#0000000f')}
+      if(wl(x,y-1))R(px,py,TS,3,'#00000014');
+    }
   }
-  R(2*TS+8,5*TS-2,10*TS-16,6*TS+4,'#ff9fc0');R(2*TS+11,5*TS+1,10*TS-22,6*TS-2,'#ffd3e3');
-  for(let i=0;i<4;i++)R(2*TS+16+i*28,5*TS+14,12,12,'#fff0f6');
+  R(2*TS+4,7*TS-2,5*TS-8,3*TS+4,'#ff9fc0');R(2*TS+7,7*TS+1,5*TS-14,3*TS-2,'#ffd3e3');
+  for(let i=0;i<3;i++)R(2*TS+14+i*22,8*TS-1,10,10,'#fff0f6');
   R(9*TS+2,3,28,13,night?'#243a6b':'#8fd6ff');R(9*TS+15,3,2,13,'#fff');R(9*TS+2,8,28,2,'#fff');
   if(night){R(9*TS+6,5,1,1,'#fff');R(9*TS+22,11,1,1,'#fff');R(9*TS+26,6,1,1,'#fff')}
   R(2*TS+2,3,28,13,night?'#243a6b':'#8fd6ff');R(2*TS+15,3,2,13,'#fff');R(2*TS+2,8,28,2,'#fff');
-  R(6*TS,TS-4,32,TS+4,'#a56f4f');for(let i=0;i<4;i++)R(6*TS+2+i*7,TS-2,5,10,['#ff8fb8','#8fd0ff','#ffe36e','#a9e3a0'][i]);R(6*TS+2,TS+9,28,2,'#8a5a44');
-  R(11*TS+4,TS+7,8,6,'#e6a07a');R(11*TS+3,TS,4,7,'#4caf62');R(11*TS+8,TS-2,4,9,'#5ccf72');
-  drawTable(t);
+  [2,9].forEach(wx=>{R(wx*TS,3,3,14,'#ff9fc0');R(wx*TS+29,3,3,14,'#ff9fc0');R(wx*TS,3,3,1,'#ffc2d8');R(wx*TS+29,3,3,1,'#ffc2d8')});
+  R(4*TS+3,3,10,9,'#a56f4f');R(4*TS+4,4,8,7,'#ffe9f1');R(4*TS+6,5,2,2,'#ff6f9d');R(4*TS+9,5,2,2,'#ff6f9d');R(4*TS+6,7,5,2,'#ff6f9d');R(4*TS+7,9,3,1,'#ff6f9d');
+  if(!night){ctx.fillStyle='rgba(255,246,200,.14)';[2,9].forEach(wx=>{const ey=wx===9?6*TS:5*TS;ctx.beginPath();ctx.moveTo(wx*TS+2,16);ctx.lineTo(wx*TS+30,16);ctx.lineTo(wx*TS+50,ey);ctx.lineTo(wx*TS+22,ey);ctx.fill()})}
+  R(5*TS,TS-4,32,TS+4,'#a56f4f');for(let i=0;i<4;i++)R(5*TS+2+i*7,TS-2,5,10,['#ff8fb8','#8fd0ff','#ffe36e','#a9e3a0'][i]);R(5*TS+2,TS+9,28,2,'#8a5a44');
+  R(4*TS+4,TS+7,8,6,'#e6a07a');R(4*TS+3,TS,4,7,'#4caf62');R(4*TS+8,TS-2,4,9,'#5ccf72');
+
   const herSl=ROLE==='her'?mySl:oSl,himSl=ROLE==='him'?mySl:oSl;
   drawBed(t,herSl,himSl,ROLE==='her'?S.look:O.look,ROLE==='him'?S.look:O.look);
   const ents=[];
   for(const k in S.hdecor){
     const v=S.hdecor[k];if(v[0]==='~')continue;
     const[x,y]=k.split(',').map(Number),it=base(v);
-    if(v.includes('@')&&SIZE[it]){const r=rotOf(v),h=dims(it,r)[1];ents.push([(FLAT[it]?y*TS-4:(y+h-1)*TS),()=>{if(!FLAT[it]){const w=dims(it,r)[0];dsh(x*TS,(y+h)*TS,w*TS)}bigSprite(it,r,x*TS,y*TS,t)}])}
+    if(v.includes('@')&&SIZE[it]){const r=rotOf(v),h=dims(it,r)[1];ents.push([(FLAT[it]?y*TS-4:(y+h-1)*TS),()=>{if(!FLAT[it]){const w=dims(it,r)[0];dsh(x*TS,(y+h)*TS,w*TS)}bigSprite(it,r,x*TS,y*TS,t,k)}])}
     else ents.push([y*TS+(FLAT[it]?-4:0),()=>{if(!FLAT[it])dsh(x*TS,(y+1)*TS,TS);itemSprite(it,x*TS,y*TS,t,k)}])
   }
   if(!mySl)ents.push([entY(P),()=>{drawChar(P,gSelf(),t,S.look);if(P.sit&&P.anim>=1)seatFront(P.x,P.y)}]);
@@ -1872,6 +1947,13 @@ function vignette(){
   const g=ctx.createRadialGradient(cv.width/2,cv.height/2,cv.height*.32,cv.width/2,cv.height/2,cv.height*.78);
   g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(50,25,70,.24)');
   ctx.fillStyle=g;ctx.fillRect(0,0,cv.width,cv.height);
+}
+function clouds(t){
+  ctx.fillStyle='rgba(40,60,90,.055)';
+  [[0,.2,64,22],[1,.5,86,28],[2,.78,56,18]].forEach(([i,fy,rx,ry])=>{
+    const x=((t/110+i*170)%(cv.width+220))-110,y=cv.height*fy;
+    ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,7);ctx.ellipse(x+rx*.5,y+ry*.2,rx*.7,ry*.8,0,0,7);ctx.fill();
+  });
 }
 function draw(t){scene==='in'?drawRoom(t):drawOutside(t);vignette()}
 
@@ -1893,6 +1975,7 @@ window.farmSync=(d,first)=>{
   let best=null;
   [d.farm,d.pl_him&&d.pl_him.w,d.pl_her&&d.pl_her.w].forEach(c=>{if(c&&(!best||(c.rev||0)>(best.rev||0)))best=c});
   if(best&&newer(best))applyWorld(best);
+  ensureKitchen();
   const mine=d['pl_'+ROLE]||(ROLE==='her'&&d.farm&&d.farm.v===2?d.farm:null);
   if(first&&mine){const np=norm(mine);if((np.ts||0)>(S.ts||0))PERSONAL.forEach(k=>{S[k]=np[k]})}
   if(first&&!best)store();
@@ -1901,7 +1984,7 @@ window.farmSync=(d,first)=>{
   renderTools();hud();if(!$('shop').hidden)renderShop();
 };
 window.farmRefresh=first=>{
-  initFor(ROLE);
+  initFor(ROLE);ensureKitchen();
   if(first){restorePos();guide();sendPos(true)}
   renderTools();hud();
 };
