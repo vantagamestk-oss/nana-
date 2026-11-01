@@ -749,19 +749,19 @@ const MAP=[];
 })();
 const mapAt=(x,y)=>(y<0||y>=H||x<0||x>=W)?'T':MAP[y][x];
 const ROOM=[
-"##############",
-"#BBBQKK.#....#",
-"#BBB....#....#",
-"#.......#....#",
-"#............#",
-"#............#",
-"#.......######",
-"#.......#     ",
-"#.......#     ",
-"#.......#     ",
-"#.......#     ",
-"####E####     "];
-const RW=14,RH=12;
+"###################",
+"#BBB..KK...Q.#....#",
+"#BBB.........#....#",
+"#............#....#",
+"#.................#",
+"#.................#",
+"#............######",
+"#............#     ",
+"#............#     ",
+"#............#     ",
+"#............#     ",
+"######E#######     "];
+const RW=19,RH=12;
 
 const cv=$('gc'),ctx=cv.getContext('2d');
 cv.width=VW*TS;cv.height=VH*TS;
@@ -770,9 +770,9 @@ cv.width=VW*TS;cv.height=VH*TS;
 const SHARED=['coins','inv','soil','unlocked','items','decor','hdecor','on','kit'];
 const PERSONAL=['energy','sleepUntil','pos','look','own','eatAt','ts','hold','carry'];
 const pick=(o,ks)=>{const r={};ks.forEach(k=>{if(o&&o[k]!==undefined)r[k]=o[k]});return r};
-const KIT0=()=>({plates:4,dirty:0,oven:[],cookAt:0,dish:null,table:[null,null,null,null],v3:false});
+const KIT0=()=>({plates:4,dirty:0,oven:[],cookAt:0,dish:null,table:[null,null,null,null],v3:false,v4:false,lastCook:0});
 function normKit(k){const d=KIT0();if(!k||typeof k!=='object')return d;
-  return{plates:Math.max(0,Math.min(12,k.plates??4)),dirty:Math.max(0,k.dirty|0),oven:Array.isArray(k.oven)?k.oven.slice(0,3):[],cookAt:+k.cookAt||0,dish:k.dish||null,table:[0,1,2,3].map(i=>(Array.isArray(k.table)&&k.table[i])||null),v3:!!k.v3}}
+  return{plates:Math.max(0,Math.min(12,k.plates??4)),dirty:Math.max(0,k.dirty|0),oven:Array.isArray(k.oven)?k.oven.slice(0,3):[],cookAt:+k.cookAt||0,dish:k.dish||null,table:[0,1,2,3].map(i=>(Array.isArray(k.table)&&k.table[i])||null),v3:!!k.v3,v4:!!k.v4,lastCook:+k.lastCook||0}}
 function norm(o){
   o=o||{};
   const items={},own={};
@@ -863,7 +863,7 @@ const blocked=(x,y)=>{
   const d=typeAt(S.decor,x,y);if(d&&DECOR[d]&&DECOR[d].block)return true;
   return cat.x===x&&cat.y===y;
 };
-function spawnPoint(){return scene==='in'?[4,10]:[7,8]}
+function spawnPoint(){return scene==='in'?[6,10]:[7,8]}
 function restorePos(){
   const p=S.pos;
   scene=(S.sleepUntil>Date.now()||(p&&p.scene==='in'))?'in':'out';
@@ -987,17 +987,16 @@ function spend(n){
   S.energy-=n;return true;
 }
 function enterHouse(){
-  scene='in';P.x=P.px=4;P.y=P.py=10;P.anim=1;P.dir='u';P.sit=0;snapCam();savePos();sendPos(true);
+  scene='in';P.x=P.px=6;P.y=P.py=10;P.anim=1;P.dir='u';P.sit=0;snapCam();savePos();sendPos(true);
   say(S.energy<=0?'انرژی‌ت صفره. برو سمت تخت و بخواب 🛏️':'توی خونه‌ای. تخت بالا سمت چپه 🛏️');
 }
 function exitHouse(){scene='out';P.x=P.px=6;P.y=P.py=7;P.anim=1;P.dir='d';P.sit=0;snapCam();savePos();sendPos(true);say('')}
 const sleptGain=()=>Math.floor(MAXE*Math.max(0,SLEEP-(S.sleepUntil-Date.now()))/SLEEP);
 function wakeUp(){
   const g=sleptGain();
-  if(g<1)return say(`تازه خوابیدی 😴 هر ${fa(Math.round(SLEEP/MAXE/6e4))} دقیقه خواب یه انرژی می‌ده. اگه صبر کنی بیشتر پر می‌شه`);
-  S.sleepUntil=0;S.energy=Math.min(MAXE,S.energy+g);
+  S.sleepUntil=0;if(g>0)S.energy=Math.min(MAXE,S.energy+g);
   savePos();storeP();sendPl();hud();
-  say(`بیدار شدی ☀️ ${fa(g)} انرژی گرفتی`);
+  say(g>0?`بیدار شدی ☀️ ${fa(g)} انرژی گرفتی`:'بیدار شدی ☀️');
 }
 function goSleep(){
   S.sleepUntil=Date.now()+SLEEP;P.sit=0;savePos();sendPl();hud();
@@ -1106,7 +1105,7 @@ function place(fx,fy,ch){
   for(let j=0;j<h;j++)for(let i=0;i<w;i++){
     const tx=fx+i,ty=fy+j;
     if(tileAt(tx,ty)!=='.'||map[tx+','+ty])return say(z?'اینجا جای کافی برای این وسیله نیست. یه جای خالی‌تر پیدا کن یا بچرخونش 🔄':'این‌جا جای وسیله نیست. یه جای خالی پیدا کن.');
-    if(scene==='in'&&tx===4&&ty>=9)return say('جلوی در رو خالی بذار 🚪');
+    if(scene==='in'&&tx===6&&ty>=9)return say('جلوی در رو خالی بذار 🚪');
     if(otherAt(tx,ty)||(scene==='out'&&cat.x===tx&&cat.y===ty))return say('الان این‌جا کسی هست');
   }
   for(let j=0;j<h;j++)for(let i=0;i<w;i++)map[(fx+i)+','+(fy+j)]=(i||j)?'~'+(-i)+','+(-j):(z?tool+'@'+r:tool);
@@ -1120,7 +1119,7 @@ const REC={'egg+tomato':'املت گوجه','bread+cheese':'ساندویچ پن�
 function dishOf(ids){
   const sorted=ids.slice().sort(),key=sorted.join('+');let n=REC[key];const sp=!!n;
   if(!n){let h=0;for(const ch of key)h=(h*31+ch.charCodeAt(0))>>>0;const st=['خوراک','پلوی','سوپ','پای','کوکوی','تابه‌ای','کبابی'];n=st[h%st.length]+' '+sorted.map(i=>ING[i][1]).join(' و ')}
-  return{n,ic:ING[ids[0]][0],e:Math.min(7,2+ids.length+(sp?1:0))};
+  return{n,ic:ING[ids[0]][0],e:Math.min(3,1+(ids.length>=2?1:0)+(sp?1:0))};
 }
 const cooking=()=>!!S.kit.dish&&S.kit.cookAt>Date.now();
 const dishReady=()=>!!S.kit.dish&&S.kit.cookAt<=Date.now();
@@ -1140,7 +1139,7 @@ function renderKit(){
     h+='<div class="bag-grid">'+carry.map((i,ix)=>`<button class="tool" data-put="${ix}">${ING[i][0]}<br>بذار توی فر</button>`).join('')+'</div>';
     h+=`<div style="display:flex;gap:8px;margin-top:10px"><button class="btn" data-kact="cook" style="flex:1"${k.oven.length&&k.plates>=2?'':' disabled'}>🔥 بپز</button><button class="btn sm" data-kact="clear">خالی کردن فر</button></div>`;
     if(k.oven.length&&k.plates<2)h+='<div class="stamp" style="margin-top:8px">برای پختن دو تا ظرف تمیز لازمه. بشقاب‌های کثیف رو از رو میز جمع کن و تو سینک بشور 🧽</div>';
-    else if(!k.oven.length)h+='<div class="stamp" style="margin-top:8px">از یخچال مواد بردار و بذار توی فر. هر ترکیبی یه غذای جدید می‌ده 🍳</div>';
+    else if(!k.oven.length)h+='<div class="stamp" style="margin-top:8px">از یخچال مواد بردار و بذار توی فر. هر ترکیبی یه غذای جدید می‌ده 🍳 (هر نیم‌ساعت یه بار می‌شه غذا پخت)</div>';
   }
   $('kitBody').innerHTML=h;
 }
@@ -1153,7 +1152,9 @@ $('kitBody').addEventListener('click',e=>{
   else if(t.dataset.kact==='clear'){if(k.dish)return;k.oven=[];store()}
   else if(t.dataset.kact==='cook'){
     if(!k.oven.length||k.plates<2||k.dish)return;
-    k.dish=dishOf(k.oven);k.plates-=2;k.cookAt=Date.now()+8000;store();closeKit();
+    const cd=(k.lastCook||0)+30*60000-Date.now();
+    if(cd>0){closeKit();say(`الان سیر هستید 😋 ${fa(Math.ceil(cd/60000))} دقیقه دیگه می‌تونید غذای جدید بپزید`);return}
+    k.dish=dishOf(k.oven);k.plates-=2;k.cookAt=Date.now()+8000;k.lastCook=Date.now();store();closeKit();
     say(`داره می‌پزه ${k.dish.ic} ... ${fa(8)} ثانیه صبر کن`);return;
   }
   renderKit();
@@ -1168,6 +1169,8 @@ function ovenAct(){
     S.hold={t:'food',n:k.dish.n,ic:k.dish.ic,e:k.dish.e};k.dish=null;k.cookAt=0;k.oven=[];store();
     return say(`${S.hold.ic} «${S.hold.n}» آماده شد! دو تا بشقاب پره. ببرش رو میز غذاخوری 🍽️`);
   }
+  const cd=(k.lastCook||0)+30*60000-Date.now();
+  if(cd>0)return say(`الان سیر هستید 😋 ${fa(Math.ceil(cd/60000))} دقیقه دیگه می‌تونید غذای جدید بپزید`);
   openKit('oven');
 }
 function tableAct(){
@@ -1197,27 +1200,26 @@ function sinkAct(){
   say('بشقاب کثیفی تو دستت نیست. اول از رو میز جمعشون کن ✨');
 }
 function ensureKitchen(){
-  const k=S.kit;if(k.v3)return;
+  const k=S.kit;if(k.v4)return;
   const map=S.hdecor,cellsOf=(x,y,v)=>{const it=base(v),[w,h]=v.includes('@')?dims(it,rotOf(v)):[1,1],c=[];for(let j=0;j<h;j++)for(let i=0;i<w;i++)c.push([x+i,y+j]);return c};
+  const KT=['kfridge','ksink','kovn','ktable'];
   for(const key of Object.keys(map)){
     const v=map[key];if(!v||v[0]==='~')continue;
     const[x,y]=key.split(',').map(Number),cs=cellsOf(x,y,v);
-    if(cs.some(([cx,cy])=>!(ROOM[cy]&&ROOM[cy][cx]==='.'))){cs.forEach(([cx,cy])=>{delete map[cx+','+cy];delete S.on[cx+','+cy]});S.items[base(v)]=(S.items[base(v)]||0)+1}
+    if(KT.includes(base(v))||cs.some(([cx,cy])=>!(ROOM[cy]&&ROOM[cy][cx]==='.'))){cs.forEach(([cx,cy])=>{delete map[cx+','+cy];delete S.on[cx+','+cy]});S.items[base(v)]=(S.items[base(v)]||0)+1}
   }
   const free=(x,y,w,h)=>{for(let j=0;j<h;j++)for(let i=0;i<w;i++){if(!(ROOM[y+j]&&ROOM[y+j][x+i]==='.')||map[(x+i)+','+(y+j)])return false}return true};
-  const placed=t=>Object.keys(map).some(key=>map[key]&&map[key][0]!=='~'&&base(map[key])===t);
   const place1=(t,w,h,cands)=>{
-    if(placed(t))return;
     const c=cands.find(([x,y])=>free(x,y,w,h));if(!c)return;
     if(S.items[t]>0)S.items[t]--;
     for(let j=0;j<h;j++)for(let i=0;i<w;i++)map[(c[0]+i)+','+(c[1]+j)]=(i||j)?'~'+(-i)+','+(-j):(SIZE[t]?t+'@0':t);
   };
-  place1('kfridge',1,1,[[9,1],[12,1],[9,2],[12,2]]);
-  place1('ksink',1,1,[[10,1],[9,2],[12,2],[9,3]]);
-  place1('kovn',1,1,[[11,1],[12,2],[12,3],[9,3]]);
-  place1('ktable',2,2,[[10,3],[10,2],[3,4],[4,3]]);
-  ['kfridge','ksink','kovn','ktable'].forEach(t=>{if(!placed(t)&&!(S.items[t]>0))S.items[t]=1});
-  k.v3=true;store();
+  place1('kfridge',1,1,[[14,1],[17,1],[14,2],[17,2]]);
+  place1('ksink',1,1,[[15,1],[14,2],[17,2],[14,3]]);
+  place1('kovn',1,1,[[16,1],[17,2],[17,3],[14,3]]);
+  place1('ktable',2,2,[[15,3],[15,2],[8,5],[9,4]]);
+  KT.forEach(t=>{const placed=Object.keys(map).some(key=>map[key]&&map[key][0]!=='~'&&base(map[key])===t);if(!placed&&!(S.items[t]>0))S.items[t]=1});
+  k.v4=true;store();
 }
 function actIn(fx,fy){
   const ch=tileAt(fx,fy),k=fx+','+fy;
@@ -1358,7 +1360,7 @@ function tryMove(d){
 }
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function camTarget(){
-  if(scene==='in')return[0,-(VH-RH)*TS/2];
+  if(scene==='in'){const a=P.anim,x=(P.px+(P.x-P.px)*a)*TS+8;return[clamp(x-VW*TS/2,0,RW*TS-VW*TS),-(VH-RH)*TS/2]}
   const a=P.anim,x=(P.px+(P.x-P.px)*a)*TS+8,y=(P.py+(P.y-P.py)*a)*TS+8;
   return[clamp(x-VW*TS/2,0,W*TS-VW*TS),clamp(y-VH*TS/2,0,H*TS-VH*TS)];
 }
@@ -1864,16 +1866,19 @@ function drawTable(X,Y,t){
   });
 }
 function drawBed(t,herSl,himSl,herLook,himLook){
+  const both=herSl&&himSl;
   R(TS,TS-2,48,6,'#a56f4f');R(TS,TS+2,48,31,'#c98f6b');R(TS,TS+32,48,2,'#00000018');
   R(TS+2,TS+5,44,26,'#ffffff');
-  R(TS+4,TS+7,16,7,'#ffe9f1');R(TS+28,TS+7,16,7,'#e1f1ff');
-  if(herSl)sleeperHead(TS+3,true,herLook);
-  if(himSl)sleeperHead(TS+27,false,himLook);
-  R(TS+2,TS+16,23,15,'#ff9cbc');R(TS+2,TS+16,23,2,'#ffb8d0');R(TS+2,TS+23,23,2,'#ffb8d0');
-  R(TS+25,TS+16,21,15,'#7cc4f5');R(TS+25,TS+16,21,2,'#a9dcfa');R(TS+25,TS+23,21,2,'#a9dcfa');
+  R(TS+4,TS+7,16,7,'#e1f1ff');R(TS+28,TS+7,16,7,'#ffe9f1');
+  if(himSl)sleeperHead(both?TS+9:TS+3,false,himLook);
+  if(herSl)sleeperHead(both?TS+21:TS+27,true,herLook);
+  R(TS+2,TS+16,23,15,'#7cc4f5');R(TS+2,TS+16,23,2,'#a9dcfa');R(TS+2,TS+23,23,2,'#a9dcfa');
+  R(TS+25,TS+16,21,15,'#ff9cbc');R(TS+25,TS+16,21,2,'#ffb8d0');R(TS+25,TS+23,21,2,'#ffb8d0');
   R(TS+24,TS+16,2,15,'#ffffff');
+  if(both){R(TS+17,TS+14,16,4,'#ffd9b8');R(TS+17,TS+14,16,1,'#ffe9d2');R(TS+16,TS+15,2,3,'#7cc4f5');R(TS+32,TS+15,2,3,'#ff9cbc')}
   ctx.fillStyle='#ffffff';ctx.font='bold 9px sans-serif';
-  [[herSl,TS+2],[himSl,TS+26]].forEach(([on,ox])=>{if(!on)return;
+  if(both){for(let i=0;i<3;i++){const ph=((t/1000)+i/3)%1;heart(TS+17+i*5,TS+8-Math.round(ph*20),1-ph)}}
+  else [[himSl,TS+2],[herSl,TS+26]].forEach(([on,ox])=>{if(!on)return;
     for(let i=0;i<3;i++){const ph=((t/1200)+i/3)%1;ctx.globalAlpha=1-ph;ctx.fillText('z',ox+TS*1.4+i*5+ph*6,TS*1.6-ph*18-i*2)}
     ctx.globalAlpha=1;
   });
@@ -1894,7 +1899,7 @@ function drawBedOld(t,herSl,himSl,herLook,himLook){
 function drawRoom(t){
   const off=(VH-RH)*TS/2;
   R(0,0,cv.width,cv.height,'#3a2a3f');
-  ctx.save();ctx.translate(0,off);
+  ctx.save();ctx.translate(-Math.round(cam.x),off);
   const now=Date.now(),mySl=S.sleepUntil>now,oSl=!!(O.has&&O.sleepUntil>now),night=isNight();
   const wl=(x,y)=>!!(ROOM[y]&&ROOM[y][x]==='#');
   for(let y=0;y<RH;y++)for(let x=0;x<RW;x++){
@@ -1905,25 +1910,26 @@ function drawRoom(t){
       if(y===0||!wl(x,y-1))R(px,py,TS,3,'#ffc2d8');
       if(y<RH-1&&!wl(x,y+1)){R(px,py+TS-6,TS,6,'#ffc5da');R(px,py+TS-7,TS,1,'#ffffff');R(px,py+TS-2,TS,2,'#f0b5c9')}
       else R(px,py+TS-2,TS,2,'#f0b5c9');
-      if(y===0&&x>=9&&x<=12){R(px,py,TS,TS-6,'#ffffff');R(px,py+7,TS,1,'#d6e4f2');R(px+7,py,1,7,'#d6e4f2');R(px+3,py+8,1,2,'#d6e4f2');R(px+11,py+8,1,2,'#d6e4f2')}
+      if(y===0&&x>=14&&x<=17){R(px,py,TS,TS-6,'#ffffff');R(px,py+7,TS,1,'#d6e4f2');R(px+7,py,1,7,'#d6e4f2');R(px+3,py+8,1,2,'#d6e4f2');R(px+11,py+8,1,2,'#d6e4f2')}
     }
     else if(ch==='E'){R(px,py,TS,TS,'#efd0b3');R(px+1,py+2,14,12,'#7cc4f5');R(px+3,py+4,10,8,'#a9dcfa')}
     else{
-      if(y>=1&&y<=5&&(x>=9&&x<=12||(x===8&&y>=4))){R(px,py,TS,TS,(x+y)%2?'#e6f1f9':'#d3e5f3');R(px,py+TS-1,TS,1,'#bcd3e6');R(px+TS-1,py,1,TS,'#bcd3e6')}
+      if(y>=1&&y<=5&&(x>=14&&x<=17||(x===13&&y>=4))){R(px,py,TS,TS,(x+y)%2?'#e6f1f9':'#d3e5f3');R(px,py+TS-1,TS,1,'#bcd3e6');R(px+TS-1,py,1,TS,'#bcd3e6')}
       else{R(px,py,TS,TS,(x+y)%2?'#f6dfc8':'#f0d5ba');R(px,py+TS-1,TS,1,'#0000000d');R(px+((y%2)?4:11),py,1,TS,'#0000000f')}
       if(wl(x,y-1))R(px,py,TS,3,'#00000014');
     }
   }
-  R(2*TS+4,7*TS-2,5*TS-8,3*TS+4,'#ff9fc0');R(2*TS+7,7*TS+1,5*TS-14,3*TS-2,'#ffd3e3');
-  for(let i=0;i<3;i++)R(2*TS+14+i*22,8*TS-1,10,10,'#fff0f6');
+  R(2*TS+8,5*TS-2,10*TS-16,6*TS+4,'#ff9fc0');R(2*TS+11,5*TS+1,10*TS-22,6*TS-2,'#ffd3e3');
+  for(let i=0;i<4;i++)R(2*TS+16+i*28,5*TS+14,12,12,'#fff0f6');
   R(9*TS+2,3,28,13,night?'#243a6b':'#8fd6ff');R(9*TS+15,3,2,13,'#fff');R(9*TS+2,8,28,2,'#fff');
   if(night){R(9*TS+6,5,1,1,'#fff');R(9*TS+22,11,1,1,'#fff');R(9*TS+26,6,1,1,'#fff')}
   R(2*TS+2,3,28,13,night?'#243a6b':'#8fd6ff');R(2*TS+15,3,2,13,'#fff');R(2*TS+2,8,28,2,'#fff');
-  [2,9].forEach(wx=>{R(wx*TS,3,3,14,'#ff9fc0');R(wx*TS+29,3,3,14,'#ff9fc0');R(wx*TS,3,3,1,'#ffc2d8');R(wx*TS+29,3,3,1,'#ffc2d8')});
+  R(15*TS+2,3,28,13,night?'#243a6b':'#8fd6ff');R(15*TS+15,3,2,13,'#fff');R(15*TS+2,8,28,2,'#fff');
+  [2,9,15].forEach(wx=>{R(wx*TS,3,3,14,'#ff9fc0');R(wx*TS+29,3,3,14,'#ff9fc0');R(wx*TS,3,3,1,'#ffc2d8');R(wx*TS+29,3,3,1,'#ffc2d8')});
   R(4*TS+3,3,10,9,'#a56f4f');R(4*TS+4,4,8,7,'#ffe9f1');R(4*TS+6,5,2,2,'#ff6f9d');R(4*TS+9,5,2,2,'#ff6f9d');R(4*TS+6,7,5,2,'#ff6f9d');R(4*TS+7,9,3,1,'#ff6f9d');
-  if(!night){ctx.fillStyle='rgba(255,246,200,.14)';[2,9].forEach(wx=>{const ey=wx===9?6*TS:5*TS;ctx.beginPath();ctx.moveTo(wx*TS+2,16);ctx.lineTo(wx*TS+30,16);ctx.lineTo(wx*TS+50,ey);ctx.lineTo(wx*TS+22,ey);ctx.fill()})}
-  R(5*TS,TS-4,32,TS+4,'#a56f4f');for(let i=0;i<4;i++)R(5*TS+2+i*7,TS-2,5,10,['#ff8fb8','#8fd0ff','#ffe36e','#a9e3a0'][i]);R(5*TS+2,TS+9,28,2,'#8a5a44');
-  R(4*TS+4,TS+7,8,6,'#e6a07a');R(4*TS+3,TS,4,7,'#4caf62');R(4*TS+8,TS-2,4,9,'#5ccf72');
+  if(!night){ctx.fillStyle='rgba(255,246,200,.14)';[2,9,15].forEach(wx=>{const ey=wx===15?6*TS:5*TS;ctx.beginPath();ctx.moveTo(wx*TS+2,16);ctx.lineTo(wx*TS+30,16);ctx.lineTo(wx*TS+50,ey);ctx.lineTo(wx*TS+22,ey);ctx.fill()})}
+  R(6*TS,TS-4,32,TS+4,'#a56f4f');for(let i=0;i<4;i++)R(6*TS+2+i*7,TS-2,5,10,['#ff8fb8','#8fd0ff','#ffe36e','#a9e3a0'][i]);R(6*TS+2,TS+9,28,2,'#8a5a44');
+  R(11*TS+4,TS+7,8,6,'#e6a07a');R(11*TS+3,TS,4,7,'#4caf62');R(11*TS+8,TS-2,4,9,'#5ccf72');
 
   const herSl=ROLE==='her'?mySl:oSl,himSl=ROLE==='him'?mySl:oSl;
   drawBed(t,herSl,himSl,ROLE==='her'?S.look:O.look,ROLE==='him'?S.look:O.look);
