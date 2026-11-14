@@ -1,0 +1,21 @@
+{
+  "id": "./",
+  "name": "Nana - دنیای ما",
+  "short_name": "Nana",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1b2135",
+  "theme_color": "#1b2135",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
